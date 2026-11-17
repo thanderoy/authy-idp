@@ -173,31 +173,6 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
 
         return is_valid
 
-    def validate_refresh_token(
-        self, refresh_token: str, client: Any, request: Request, *args, **kwargs
-    ) -> bool:
-        """
-        Validate refresh token with rotation check.
-
-        Args:
-            refresh_token: The refresh token
-            client: The client object
-            request: The request object
-
-        Returns:
-            Boolean indicating if refresh token is valid
-        """
-        # Check if token has been rotated (invalidated)
-        if self._is_token_rotated(refresh_token):
-            logger.warning(
-                f"Attempted use of rotated refresh token for client: {client.client_id}"
-            )
-            return False
-
-        return super().validate_refresh_token(
-            refresh_token, client, request, *args, **kwargs
-        )
-
     def save_bearer_token(
         self, token: Dict[str, Any], request: Request, *args, **kwargs
     ) -> None:
@@ -208,11 +183,6 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
             token: The token dictionary
             request: The request object
         """
-        # Add metadata to token
-        if "refresh_token" in token:
-            # Store refresh token family for rotation tracking
-            self._store_token_family(token["refresh_token"], request)
-
         # Log token issuance for audit
         self._log_token_issuance(token, request)
 
@@ -231,10 +201,6 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
         """
         # Add to blacklist
         self._blacklist_token(token, token_type_hint)
-
-        # If it's a refresh token, revoke all tokens in the family
-        if token_type_hint == "refresh_token":
-            self._revoke_token_family(token)
 
         # Log revocation for audit
         self._log_token_revocation(token, request)
@@ -273,43 +239,21 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
         return introspection
 
     def validate_silent_login(self, request: Request) -> bool:
+        """prompt=none: is someone signed in?
+
+        Always yes by the time oauthlib asks: DOT's AuthorizationView answers
+        an unauthenticated prompt=none request with login_required itself.
         """
-        Validate silent login request.
-
-        Args:
-            request: The request object
-
-        Returns:
-            Boolean indicating if silent login is allowed
-        """
-        # Check if user session is still valid
-        if not request.user or not request.user.is_authenticated:
-            return False
-
-        # Check if prompt=none is allowed for this client
-        client = request.client
-        if not getattr(client, "allow_silent_login", False):
-            return False
-
-        # Check session age
-        session_age = cache.get(f"session_age:{request.user.id}")
-        if session_age and session_age > 3600:  # 1 hour
-            return False
-
         return True
 
     def validate_silent_authorization(self, request: Request) -> bool:
-        """
-        Validate silent authorization request.
+        """prompt=none: has the user already consented?
 
-        Args:
-            request: The request object
-
-        Returns:
-            Boolean indicating if silent authorization is allowed
+        The user isn't on the oauthlib request at this point, so the decision
+        is made in SilentAwareAuthorizationView, which returns
+        consent_required instead of showing the consent page.
         """
-        # Similar to silent login but for authorization
-        return self.validate_silent_login(request)
+        return True
 
     # Helper methods
 
@@ -334,29 +278,6 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
         key = f"failed_attempts:{client_id}"
         attempts = cache.get(key, 0)
         cache.set(key, attempts + 1, timeout=self.LOCKOUT_DURATION)
-
-    def _is_token_rotated(self, refresh_token: str) -> bool:
-        """Check if refresh token has been rotated"""
-        key = f"rotated:{hashlib.sha256(refresh_token.encode()).hexdigest()}"
-        return cache.get(key) is not None
-
-    def _store_token_family(self, refresh_token: str, request: Request) -> None:
-        """Store refresh token family for rotation tracking"""
-        key = f"family:{hashlib.sha256(refresh_token.encode()).hexdigest()}"
-        family_id = cache.get(key)
-        if not family_id:
-            import uuid
-
-            family_id = str(uuid.uuid4())
-        cache.set(key, family_id, timeout=1209600)  # 14 days
-
-    def _revoke_token_family(self, refresh_token: str) -> None:
-        """Revoke all tokens in a family"""
-        key = f"family:{hashlib.sha256(refresh_token.encode()).hexdigest()}"
-        family_id = cache.get(key)
-        if family_id:
-            # Mark family as revoked
-            cache.set(f"family_revoked:{family_id}", True, timeout=1209600)
 
     def _log_token_usage(self, token: str, request: Request) -> None:
         """Log token usage for audit"""

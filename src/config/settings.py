@@ -324,6 +324,8 @@ OAUTH2_PROVIDER = {
         "AUTHORIZATION_CODE_EXPIRE_SECONDS", default=600, cast=int
     ),
     "ROTATE_REFRESH_TOKEN": True,  # Security best practice
+    # Replaying a rotated refresh token revokes its whole family.
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
     "PKCE_REQUIRED": True,  # Enforce PKCE for public clients
     "APPLICATION_MODEL": "oauth2_provider.Application",
 }

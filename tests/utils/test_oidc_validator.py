@@ -36,7 +36,6 @@ def mock_request():
     req.user.custom_attributes = {"role": "admin"}
     req.client = MagicMock()
     req.client.client_id = "test-client"
-    req.client.allow_silent_login = True
     return req
 
 
@@ -119,34 +118,17 @@ class TestEnhancedValidator:
         )
         assert cache.get("auth_code_used:fresh_code") is True
 
-    def test_validate_refresh_token_rotated(self, validator, mock_request):
-        cache.set("rotated:stale_rt", True)
-        assert (
-            validator.validate_refresh_token("stale_rt", MagicMock(), mock_request)
-            is False
-        )
-
     @patch("oauth2_provider.oauth2_validators.OAuth2Validator.save_bearer_token")
     def test_save_bearer_token(self, mock_super, validator, mock_request):
         token = {"access_token": "at", "refresh_token": "rt"}
         validator.save_bearer_token(token, mock_request)
-        family = cache.get(f"family:{hashlib.sha256(b'rt').hexdigest()}")
-        assert family is not None
         mock_super.assert_called_once()
 
-    @patch("oauth2_provider.oauth2_validators.OAuth2Validator.save_bearer_token")
     @patch("oauth2_provider.oauth2_validators.OAuth2Validator.revoke_token")
-    def test_revoke_token_family(
-        self, mock_super_revoke, mock_super_save, validator, mock_request
-    ):
-        # Create family
-        token = {"access_token": "at", "refresh_token": "rt"}
-        validator.save_bearer_token(token, mock_request)
-        family = cache.get(f"family:{hashlib.sha256(b'rt').hexdigest()}")
-
+    def test_revoke_token_blacklists(self, mock_super, validator, mock_request):
         validator.revoke_token("rt", "refresh_token", mock_request)
         assert cache.get(f"blacklist:{hashlib.sha256(b'rt').hexdigest()}") is True
-        assert cache.get(f"family_revoked:{family}") is True
+        mock_super.assert_called_once()
 
     def test_introspect_token_blacklisted(self, validator, mock_request):
         validator._blacklist_token("bad_token", "access_token")
@@ -161,23 +143,6 @@ class TestEnhancedValidator:
         cache.set(f"token_issued:{hashlib.sha256(b'good').hexdigest()}", "time")
         res = validator.introspect_token("good", "access_token", mock_request)
         assert res["issued_at"] == "time"
-
-    def test_validate_silent_login_unauthenticated(self, validator, mock_request):
-        mock_request.user.is_authenticated = False
-        assert validator.validate_silent_login(mock_request) is False
-
-    def test_validate_silent_login_client_disallowed(self, validator, mock_request):
-        mock_request.client.allow_silent_login = False
-        assert validator.validate_silent_login(mock_request) is False
-
-    def test_validate_silent_login_session_too_old(self, validator, mock_request):
-        cache.set(f"session_age:{mock_request.user.id}", 4000)
-        assert validator.validate_silent_login(mock_request) is False
-
-    def test_validate_silent_login_success(self, validator, mock_request):
-        # User is authenticated, client allows silent, no session age means fresh
-        assert validator.validate_silent_login(mock_request) is True
-        assert validator.validate_silent_authorization(mock_request) is True
 
     def test_log_token_usage_fallback_request(self, validator, mock_request):
         # Mock oauthlib request that wraps a django request

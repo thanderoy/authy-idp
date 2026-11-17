@@ -15,6 +15,7 @@ from oauth2_provider import urls as oauth2_urls
 from modules.entities.mixins import BrandedAuthMixin
 from modules.entities.views import RegisterView, VerifyEmailView
 from modules.utils import throttling
+from modules.utils.authorization import SilentAwareAuthorizationView
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,12 @@ if settings.ADMIN_REQUIRE_OTP:
 
 urlpatterns = [
     path(settings.ADMIN_URL, admin.site.urls),
+    # Shadows DOT's authorize URL (same path, matched first).
+    path(
+        "o/authorize/",
+        SilentAwareAuthorizationView.as_view(),
+        name="authorize",
+    ),
     path("o/", include(oauth2_urls)),
     path("entities/", include("modules.entities.urls", namespace="entities")),
     path("register/", BrandedRegisterView.as_view(), name="register"),
