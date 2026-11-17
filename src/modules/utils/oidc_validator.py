@@ -17,6 +17,16 @@ User = get_user_model()
 class EnhancedAuthyOAuth2Validator(OAuth2Validator):
     """Enhanced OAuth2 Validator with additional security and functionality"""
 
+    # Which scope releases each claim. DOT applies this to both the ID token
+    # and userinfo; a claim missing from the map is never released.
+    oidc_claim_scope = {
+        **OAuth2Validator.oidc_claim_scope,
+        "first_name": "profile",
+        "last_name": "profile",
+        "entity_type": "profile",
+        "groups": "groups",
+    }
+
     # Rate limiting constants
     MAX_FAILED_ATTEMPTS = 5
     LOCKOUT_DURATION = 900  # 15 minutes in seconds
@@ -45,45 +55,12 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
         if hasattr(user, "entity_type"):
             claims["entity_type"] = user.entity_type
 
-        # Add groups if user has them
+        # Add groups if user has them (names, same in ID token and userinfo)
         if hasattr(user, "parent_entities"):
             groups = user.parent_entities.filter(entity_type="GRP").values_list(
-                "uuid", flat=True
+                "first_name", "last_name"
             )
-            claims["groups"] = [str(uuid) for uuid in groups]
-
-        # Add custom attributes if defined
-        if hasattr(user, "custom_attributes"):
-            claims["custom_attributes"] = user.custom_attributes
-
-        return claims
-
-    def get_userinfo_claims(self, request) -> Dict[str, Any]:
-        """
-        Get userinfo claims for the userinfo endpoint.
-
-        Args:
-            request: The OAuth2 request object
-
-        Returns:
-            Dictionary of userinfo claims
-        """
-        claims = super().get_userinfo_claims(request)
-
-        # Add additional claims based on requested scopes
-        if request.scopes and "profile" in request.scopes:
-            claims.update(self.get_additional_claims(request))
-
-        if request.scopes and "email" in request.scopes:
-            claims["email"] = request.user.email
-            claims["email_verified"] = request.user.email_verified
-
-        if request.scopes and "groups" in request.scopes:
-            if hasattr(request.user, "parent_entities"):
-                groups = request.user.parent_entities.filter(
-                    entity_type="GRP"
-                ).values_list("first_name", "last_name")
-                claims["groups"] = [f"{first} {last}".strip() for first, last in groups]
+            claims["groups"] = [f"{first} {last}".strip() for first, last in groups]
 
         return claims
 

@@ -28,12 +28,11 @@ def mock_request():
 
     # Mock groups
     group_mock = MagicMock()
-    group_mock.filter.return_value.values_list.side_effect = [
-        ["uuid-1", "uuid-2"],  # for get_additional_claims flat=True
-        [("Group", "One"), ("Group", "Two")],  # for get_userinfo_claims
+    group_mock.filter.return_value.values_list.return_value = [
+        ("Group", "One"),
+        ("Group", "Two"),
     ]
     req.user.parent_entities = group_mock
-    req.user.custom_attributes = {"role": "admin"}
     req.client = MagicMock()
     req.client.client_id = "test-client"
     return req
@@ -49,17 +48,7 @@ class TestEnhancedValidator:
         assert claims["first_name"] == "Test"
         assert claims["email"] == "test@example.com"
         assert claims["entity_type"] == "PSN"
-        assert claims["custom_attributes"] == {"role": "admin"}
-        assert len(claims["groups"]) == 2
-
-    def test_get_userinfo_claims(self, validator, mock_request):
-        with patch(
-            "oauth2_provider.oauth2_validators.OAuth2Validator.get_userinfo_claims",
-            return_value={"sub": "1"},
-        ):
-            claims = validator.get_userinfo_claims(mock_request)
-            assert claims["email"] == "test@example.com"
-            assert "Group One" in claims["groups"]
+        assert claims["groups"] == ["Group One", "Group Two"]
 
     def test_validate_bearer_token_blacklisted(self, validator, mock_request):
         validator._blacklist_token("bad_token", "access_token")
