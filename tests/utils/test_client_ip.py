@@ -96,3 +96,23 @@ def test_settings_trust_proxy_headers_only_when_configured(load_settings):
     proxied = load_settings(probe, TRUSTED_PROXY_COUNT="1")
     assert direct.stdout.strip() == "None False", direct.stderr
     assert proxied.stdout.strip() == "('HTTP_X_FORWARDED_PROTO', 'https') True"
+
+
+@pytest.mark.django_db
+def test_healthz_ok_without_https_or_allowed_host(client, settings):
+    settings.SECURE_SSL_REDIRECT = True
+    settings.ALLOWED_HOSTS = ["auth.example.com"]
+    response = client.get("/healthz/", HTTP_HOST="127.0.0.1:8000")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.django_db
+def test_healthz_reports_cache_failure(client, monkeypatch):
+    from modules.utils import middleware
+
+    def broken(*args, **kwargs):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(middleware.cache, "set", broken)
+    assert client.get("/healthz/").status_code == 503

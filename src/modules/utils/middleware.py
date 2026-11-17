@@ -5,11 +5,37 @@ import time
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
+from django.core.cache import cache
+from django.db import connection
 
 from modules.utils import throttling
 from modules.utils.client_ip import get_client_ip
 
 logger = logging.getLogger(__name__)
+
+
+class HealthCheckMiddleware:
+    """Answers /healthz/ with 200 when the database and cache respond.
+
+    Runs before everything else so it isn't redirected, host-checked,
+    rate-limited or logged.
+    """
+
+    PATH = "/healthz/"
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.path != self.PATH:
+            return self.get_response(request)
+        try:
+            connection.ensure_connection()
+            cache.set("healthz", 1, timeout=5)
+        except Exception:
+            logger.exception("Health check failed")
+            return JsonResponse({"status": "unavailable"}, status=503)
+        return JsonResponse({"status": "ok"})
 
 
 class RateLimitMiddleware(MiddlewareMixin):

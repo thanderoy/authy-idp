@@ -67,6 +67,7 @@ INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "modules.utils.middleware.SecurityHeadersMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "modules.utils.middleware.RequestSizeMiddleware",
@@ -87,6 +88,10 @@ MIDDLEWARE = [
 if not DEBUG:
     MIDDLEWARE.insert(0, "django_prometheus.middleware.PrometheusBeforeMiddleware")
     MIDDLEWARE.append("django_prometheus.middleware.PrometheusAfterMiddleware")
+
+# First of all, so container health checks over plain HTTP aren't redirected
+# to HTTPS or rejected by the ALLOWED_HOSTS check.
+MIDDLEWARE.insert(0, "modules.utils.middleware.HealthCheckMiddleware")
 
 # CORS Configuration - More restrictive
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="", cast=Csv())
@@ -168,6 +173,16 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
+# WhiteNoise serves collected static files when DEBUG is off. The manifest
+# storage needs collectstatic to have run, so dev and tests use the plain one.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        if DEBUG or TESTING
+        else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
 
 # Media files
 MEDIA_URL = "/media/"
