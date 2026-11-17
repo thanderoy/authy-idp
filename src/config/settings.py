@@ -372,7 +372,7 @@ SESSION_COOKIE_SAMESITE = "Lax"
 # Logging Configuration
 # Log files go to LOG_DIR (default src/logs/), created on startup so a fresh
 # checkout or container doesn't fail with "Unable to configure handler".
-LOG_DIR = Path(config("LOG_DIR", default=str(BASE_DIR / "logs")))
+LOG_DIR = Path(config("LOG_DIR", default="") or BASE_DIR / "logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 LOGGING = {

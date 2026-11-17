@@ -49,6 +49,15 @@ def test_signing_key_read_from_path_and_inactive_keys_published(
     assert result.stdout.split() == ["200", "2"]
 
 
+def test_blank_log_dir_means_default(load_settings):
+    probe = (
+        "import os;os.environ['DJANGO_SETTINGS_MODULE']='config.settings';"
+        "from django.conf import settings as s;print(s.LOG_DIR)"
+    )
+    result = load_settings(probe, LOG_DIR="")
+    assert result.stdout.strip().endswith("src/logs"), result.stderr
+
+
 def test_log_dir_is_created(load_settings, tmp_path):
     log_dir = tmp_path / "fresh" / "logs"
     result = load_settings(PROBE, LOG_DIR=str(log_dir))
