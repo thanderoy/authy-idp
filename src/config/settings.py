@@ -198,8 +198,16 @@ LOGOUT_REDIRECT_URL = "/"
 
 AUTHENTICATION_BACKENDS = [
     "oauth2_provider.backends.OAuth2Backend",
-    "django.contrib.auth.backends.ModelBackend",
+    "modules.entities.backends.LockoutModelBackend",
 ]
+
+# Failed logins per account before it is locked, and for how long.
+LOGIN_LOCKOUT_ATTEMPTS = config("LOGIN_LOCKOUT_ATTEMPTS", default=5, cast=int)
+LOGIN_LOCKOUT_SECONDS = config("LOGIN_LOCKOUT_SECONDS", default=900, cast=int)
+# Reset emails a single address can receive per hour, whoever asks.
+PASSWORD_RESET_EMAILS_PER_HOUR = config(
+    "PASSWORD_RESET_EMAILS_PER_HOUR", default=3, cast=int
+)
 
 # REST Framework Configuration
 REST_FRAMEWORK = {

@@ -39,7 +39,7 @@ class RegisterView(CreateView):
         login(
             self.request,
             user,
-            backend="django.contrib.auth.backends.ModelBackend",
+            backend="modules.entities.backends.LockoutModelBackend",
         )
         send_verification_email(self.request, user)
         return response

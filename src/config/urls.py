@@ -1,12 +1,17 @@
 """Authy OIDC URLs"""
 
+import hashlib
+
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
+from django.http import HttpResponseRedirect
 from oauth2_provider import urls as oauth2_urls
 
 from modules.entities.mixins import BrandedAuthMixin
 from modules.entities.views import RegisterView, VerifyEmailView
+from modules.utils import throttling
 
 
 # -- Branded auth views (inject app branding via client_id) ----------------
@@ -21,7 +26,16 @@ class BrandedLogoutView(BrandedAuthMixin, auth_views.LogoutView):
 
 
 class BrandedPasswordResetView(BrandedAuthMixin, auth_views.PasswordResetView):
-    pass
+    def form_valid(self, form):
+        # Cap mails per target address so the form can't flood an inbox
+        # from many IPs. Over the cap we skip sending but answer the same
+        # way, so the response doesn't reveal anything.
+        email = form.cleaned_data["email"].strip().lower()
+        digest = hashlib.sha256(email.encode()).hexdigest()
+        sent = throttling.hit(f"password_reset:{digest}", 3600)
+        if sent > settings.PASSWORD_RESET_EMAILS_PER_HOUR:
+            return HttpResponseRedirect(self.get_success_url())
+        return super().form_valid(form)
 
 
 class BrandedPasswordResetDoneView(BrandedAuthMixin, auth_views.PasswordResetDoneView):

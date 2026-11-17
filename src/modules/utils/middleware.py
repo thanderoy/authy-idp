@@ -2,11 +2,11 @@
 
 import logging
 import time
-from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
 
+from modules.utils import throttling
 from modules.utils.client_ip import get_client_ip
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,14 @@ class RateLimitMiddleware(MiddlewareMixin):
 
     DEFAULT_RATE_LIMIT = 100  # requests per minute
     TOKEN_ENDPOINT_LIMIT = 10  # requests per minute for token endpoints
+
+    # (path prefix, methods or None for any, limit, window seconds). The
+    # first match wins; anything unmatched gets DEFAULT_RATE_LIMIT a minute.
+    RULES = [
+        ("/login/", {"POST"}, 10, 60),
+        ("/password_reset/", {"POST"}, 5, 3600),
+        ("/register/", {"POST"}, 5, 3600),
+    ]
 
     def process_request(self, request: HttpRequest) -> HttpResponse | None:
         """Process incoming request and check rate limits"""
@@ -31,14 +39,10 @@ class RateLimitMiddleware(MiddlewareMixin):
         # Get client identifier (IP address or authenticated user)
         client_id = self._get_client_identifier(request)
 
-        # Get rate limit for the endpoint
-        rate_limit = self._get_rate_limit_for_endpoint(request.path)
+        rate_limit, window = self._get_rate_limit_for_request(request)
 
-        # Check rate limit
         cache_key = f"rate_limit:{client_id}:{request.path}"
-        request_count = cache.get(cache_key, 0)
-
-        if request_count >= rate_limit:
+        if throttling.hit(cache_key, window) > rate_limit:
             logger.warning(f"Rate limit exceeded for {client_id} on {request.path}")
             return JsonResponse(
                 {
@@ -48,9 +52,6 @@ class RateLimitMiddleware(MiddlewareMixin):
                 status=429,
             )
 
-        # Increment counter
-        cache.set(cache_key, request_count + 1, timeout=60)
-
         return None
 
     def _get_client_identifier(self, request: HttpRequest) -> str:
@@ -59,11 +60,16 @@ class RateLimitMiddleware(MiddlewareMixin):
             return f"user:{request.user.id}"
         return f"ip:{get_client_ip(request)}"
 
-    def _get_rate_limit_for_endpoint(self, path: str) -> int:
-        """Get rate limit for specific endpoint"""
-        if "/token" in path or "/authorize" in path:
-            return self.TOKEN_ENDPOINT_LIMIT
-        return self.DEFAULT_RATE_LIMIT
+    def _get_rate_limit_for_request(self, request: HttpRequest) -> tuple[int, int]:
+        """Get (limit, window seconds) for this request"""
+        for prefix, methods, limit, window in self.RULES:
+            if request.path.startswith(prefix) and (
+                methods is None or request.method in methods
+            ):
+                return limit, window
+        if "/token" in request.path or "/authorize" in request.path:
+            return self.TOKEN_ENDPOINT_LIMIT, 60
+        return self.DEFAULT_RATE_LIMIT, 60
 
 
 class SecurityHeadersMiddleware(MiddlewareMixin):
