@@ -151,7 +151,7 @@ class AuditLoggingMiddleware(MiddlewareMixin):
     SENSITIVE_ENDPOINTS = [
         "/o/token/",
         "/o/authorize/",
-        "/o/revoke/",
+        "/o/revoke_token/",
         "/o/introspect/",
         "/entities/",
     ]

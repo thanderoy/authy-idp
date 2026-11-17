@@ -176,3 +176,17 @@ def test_audit_log_omits_exception_text(rf, caplog):
     )
     assert "ValueError" in caplog.text
     assert "hunter2" not in caplog.text
+
+
+def test_token_revocation_is_audited(rf, caplog):
+    import logging
+
+    from django.contrib.auth.models import AnonymousUser
+
+    from modules.utils.middleware import AuditLoggingMiddleware
+
+    request = rf.post("/o/revoke_token/")
+    request.user = AnonymousUser()
+    caplog.set_level(logging.INFO)
+    AuditLoggingMiddleware(lambda r: None).process_request(request)
+    assert "Audit: POST /o/revoke_token/" in caplog.text
