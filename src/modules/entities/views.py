@@ -36,9 +36,12 @@ class RegisterView(CreateView):
 
 
 class EntityViewSet(viewsets.ModelViewSet):
+    """Directory-wide entity management. Staff only: it can read and rewrite
+    any account. Users manage their own account through the console."""
+
     queryset = Entity.objects.all()
     serializer_class = EntitySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]
 
 
 class EntityMeViewset(generics.RetrieveUpdateAPIView):

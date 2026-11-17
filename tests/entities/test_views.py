@@ -51,12 +51,68 @@ class TestEntityViews:
         assert response.data["first_name"] == "Marco"
 
     def test_entity_viewset_list(self, api_rf, auth_user):
+        auth_user.is_staff = True
+        auth_user.save()
         view = EntityViewSet.as_view({"get": "list"})
         request = api_rf.get("/entities/")
         force_authenticate(request, user=auth_user)
         response = view(request)
         assert response.status_code == 200
         assert len(response.data) > 0
+
+
+@pytest.mark.django_db
+class TestEntityViewSetAccess:
+    """A signed-in non-staff user must not read or modify other accounts."""
+
+    list_url = "/entities/entities/"
+
+    @pytest.fixture
+    def victim(self):
+        return User.objects.create_user(
+            first_name="Victim",
+            last_name="User",
+            email="victim@example.com",
+            password=_build_test_password(),
+            is_active=True,
+        )
+
+    @pytest.fixture
+    def api_client(self, auth_user):
+        from rest_framework.test import APIClient
+
+        api_client = APIClient()
+        api_client.force_authenticate(user=auth_user)
+        return api_client
+
+    def test_non_staff_cannot_list(self, api_client):
+        assert api_client.get(self.list_url).status_code == 403
+
+    def test_non_staff_cannot_take_over_another_account(self, api_client, victim):
+        new_password = _build_test_password() + "Hijack"
+        response = api_client.patch(
+            f"{self.list_url}{victim.pk}/",
+            {
+                "email": "attacker@example.com",
+                "password": new_password,
+                "confirm_password": new_password,
+            },
+            format="json",
+        )
+        assert response.status_code == 403
+        victim.refresh_from_db()
+        assert victim.email == "victim@example.com"
+        assert not victim.check_password(new_password)
+
+    def test_anonymous_cannot_list(self):
+        from rest_framework.test import APIClient
+
+        assert APIClient().get(self.list_url).status_code in (401, 403)
+
+    def test_staff_can_list(self, api_client, auth_user):
+        auth_user.is_staff = True
+        auth_user.save()
+        assert api_client.get(self.list_url).status_code == 200
 
 
 # --- Comment 2: Registration flow tests ---
