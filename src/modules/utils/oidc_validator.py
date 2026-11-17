@@ -8,6 +8,8 @@ from django.core.cache import cache
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauthlib.common import Request
 
+from modules.utils.client_ip import get_client_ip
+
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
@@ -360,9 +362,9 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
         """Log token usage for audit"""
         remote_addr = "unknown"
         if hasattr(request, "META"):
-            remote_addr = request.META.get("REMOTE_ADDR", "unknown")
+            remote_addr = get_client_ip(request)
         elif hasattr(request, "request") and hasattr(request.request, "META"):
-            remote_addr = request.request.META.get("REMOTE_ADDR", "unknown")
+            remote_addr = get_client_ip(request.request)
 
         key = f"token_last_used:{hashlib.sha256(token.encode()).hexdigest()}"
         cache.set(key, remote_addr, timeout=3600)

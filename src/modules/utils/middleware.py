@@ -7,6 +7,8 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
 
+from modules.utils.client_ip import get_client_ip
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +22,7 @@ class RateLimitMiddleware(MiddlewareMixin):
         """Process incoming request and check rate limits"""
 
         # Skip rate limiting for internal IPs in debug mode
-        if settings.DEBUG and request.META.get("REMOTE_ADDR") in [
+        if settings.DEBUG and get_client_ip(request) in [
             "127.0.0.1",
             "localhost",
         ]:
@@ -55,7 +57,7 @@ class RateLimitMiddleware(MiddlewareMixin):
         """Get unique identifier for the client"""
         if request.user and request.user.is_authenticated:
             return f"user:{request.user.id}"
-        return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+        return f"ip:{get_client_ip(request)}"
 
     def _get_rate_limit_for_endpoint(self, path: str) -> int:
         """Get rate limit for specific endpoint"""
@@ -124,7 +126,7 @@ class AuditLoggingMiddleware(MiddlewareMixin):
         if any(endpoint in request.path for endpoint in self.SENSITIVE_ENDPOINTS):
             logger.info(
                 f"Audit: {request.method} {request.path} from "
-                f"{request.META.get('REMOTE_ADDR', 'unknown')} "
+                f"{get_client_ip(request)} "
                 f"User: {request.user.id if request.user.is_authenticated else 'Anonymous'}"
             )
 
@@ -178,7 +180,7 @@ class IPWhitelistMiddleware(MiddlewareMixin):
             logger.warning("No IP whitelist configured for admin access")
             return None
 
-        client_ip = request.META.get("REMOTE_ADDR", "")
+        client_ip = get_client_ip(request)
 
         # Check if client IP is in whitelist
         if client_ip not in whitelisted_ips:
@@ -207,7 +209,7 @@ class RequestSizeMiddleware(MiddlewareMixin):
                     if size > self.MAX_REQUEST_SIZE:
                         logger.warning(
                             f"Request too large: {size} bytes from "
-                            f"{request.META.get('REMOTE_ADDR', 'unknown')}"
+                            f"{get_client_ip(request)}"
                         )
                         return JsonResponse(
                             {
@@ -231,7 +233,7 @@ class SessionSecurityMiddleware(MiddlewareMixin):
         if request.user.is_authenticated:
             # Check for session hijacking by comparing IP
             session_ip = request.session.get("ip_address")
-            current_ip = request.META.get("REMOTE_ADDR")
+            current_ip = get_client_ip(request)
 
             if session_ip and session_ip != current_ip:
                 logger.warning(

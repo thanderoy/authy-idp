@@ -16,6 +16,15 @@ SECRET_KEY = config("DJANGO_SECRET_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="", cast=Csv())
 
+# Reverse proxy (Traefik): how many proxies sit in front of the app. When
+# set, X-Forwarded-Proto/Host are trusted and client IPs come from
+# X-Forwarded-For (see modules.utils.client_ip). Leave at 0 when the app is
+# reached directly, or clients could spoof these headers.
+TRUSTED_PROXY_COUNT = config("TRUSTED_PROXY_COUNT", default=0, cast=int)
+if TRUSTED_PROXY_COUNT > 0:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+
 SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=not DEBUG, cast=bool)
 if TESTING:
     SECURE_SSL_REDIRECT = False

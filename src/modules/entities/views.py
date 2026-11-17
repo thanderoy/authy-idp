@@ -16,6 +16,7 @@ from django.contrib.auth.views import PasswordChangeView
 from django.contrib import messages
 from django.conf import settings
 
+from modules.utils.client_ip import get_client_ip
 from modules.entities.forms import CustomUserCreationForm, UserUpdateForm
 from modules.entities.verification import (
     email_verification_token,
@@ -148,7 +149,7 @@ class ConsoleSessionsView(LoginRequiredMixin, TemplateView):
         return [
             {
                 "session_key": self.request.session.session_key,
-                "ip": self.request.META.get("REMOTE_ADDR", "Unknown"),
+                "ip": get_client_ip(self.request),
                 "user_agent": self.request.META.get("HTTP_USER_AGENT", "Unknown"),
             }
         ]
