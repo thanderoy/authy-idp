@@ -79,3 +79,35 @@ class TestEmailVerification:
         request = MagicMock(user=user)
         claims = EnhancedAuthyOAuth2Validator().get_additional_claims(request)
         assert claims["email_verified"] is False
+
+
+@pytest.fixture
+def smtp_down(monkeypatch):
+    import smtplib
+
+    def fail(*args, **kwargs):
+        raise smtplib.SMTPConnectError(421, "unreachable")
+
+    monkeypatch.setattr("django.core.mail.message.EmailMessage.send", fail)
+
+
+@pytest.mark.django_db
+class TestMailServerDown:
+    def test_registration_still_succeeds(self, client, smtp_down):
+        response = client.post("/register/", REGISTER_PAYLOAD)
+        assert response.status_code == 302
+        assert User.objects.filter(email="newuser@authy.io").exists()
+
+    def test_resend_reports_the_failure(self, client, smtp_down):
+        from django.contrib.messages import get_messages
+
+        user = User.objects.create_user("A", "B", "a@example.com", "x", is_active=True)
+        client.force_login(user)
+        response = client.post("/entities/console/verify-email/resend/")
+        assert [m.level_tag for m in get_messages(response.wsgi_request)] == ["error"]
+
+    def test_password_reset_answers_as_usual(self, client, smtp_down):
+        User.objects.create_user("A", "B", "a@example.com", "x", is_active=True)
+        response = client.post("/password_reset/", {"email": "a@example.com"})
+        assert response.status_code == 302
+        assert response.url == "/password_reset/done/"

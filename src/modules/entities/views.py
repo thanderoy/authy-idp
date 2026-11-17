@@ -72,8 +72,12 @@ class VerifyEmailView(View):
 class ResendVerificationView(LoginRequiredMixin, View):
     def post(self, request):
         if not request.user.email_verified:
-            send_verification_email(request, request.user)
-            messages.success(request, "We've sent a new verification link.")
+            if send_verification_email(request, request.user):
+                messages.success(request, "We've sent a new verification link.")
+            else:
+                messages.error(
+                    request, "We couldn't send the email just now. Try again later."
+                )
         return redirect("entities:console_profile")
 
 

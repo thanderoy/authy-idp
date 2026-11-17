@@ -1,6 +1,8 @@
 """Authy OIDC URLs"""
 
 import hashlib
+import logging
+import smtplib
 
 from django.conf import settings
 from django.contrib import admin
@@ -13,6 +15,9 @@ from oauth2_provider import urls as oauth2_urls
 from modules.entities.mixins import BrandedAuthMixin
 from modules.entities.views import RegisterView, VerifyEmailView
 from modules.utils import throttling
+
+
+logger = logging.getLogger(__name__)
 
 
 # -- Branded auth views (inject app branding via client_id) ----------------
@@ -36,7 +41,13 @@ class BrandedPasswordResetView(BrandedAuthMixin, auth_views.PasswordResetView):
         sent = throttling.hit(f"password_reset:{digest}", 3600)
         if sent > settings.PASSWORD_RESET_EMAILS_PER_HOUR:
             return HttpResponseRedirect(self.get_success_url())
-        return super().form_valid(form)
+        try:
+            return super().form_valid(form)
+        except (smtplib.SMTPException, OSError):
+            # Same answer as success: a mail outage shouldn't be a 500, nor
+            # reveal whether the address has an account.
+            logger.exception("Could not send password reset email")
+            return HttpResponseRedirect(self.get_success_url())
 
 
 class BrandedPasswordResetDoneView(BrandedAuthMixin, auth_views.PasswordResetDoneView):

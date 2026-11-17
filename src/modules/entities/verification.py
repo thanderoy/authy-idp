@@ -5,6 +5,9 @@ hash includes the email and ``email_verified``, so the link stops working
 once it has been used or the address changes.
 """
 
+import logging
+import smtplib
+
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.mail import send_mail
 from django.http import HttpRequest
@@ -14,6 +17,8 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from modules.entities.models import Entity
+
+logger = logging.getLogger(__name__)
 
 
 class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
@@ -26,7 +31,9 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
 email_verification_token = EmailVerificationTokenGenerator()
 
 
-def send_verification_email(request: HttpRequest, user: Entity) -> None:
+def send_verification_email(request: HttpRequest, user: Entity) -> bool:
+    """Send the link; return False (and log) if the mail server fails, so a
+    mail outage doesn't break sign-up. The user can resend from the console."""
     path = reverse(
         "verify_email",
         kwargs={
@@ -37,4 +44,9 @@ def send_verification_email(request: HttpRequest, user: Entity) -> None:
     context = {"user": user, "verify_url": request.build_absolute_uri(path)}
     subject = render_to_string("registration/verify_email_subject.txt", context).strip()
     body = render_to_string("registration/verify_email_email.txt", context)
-    send_mail(subject, body, None, [user.email])
+    try:
+        send_mail(subject, body, None, [user.email])
+    except (smtplib.SMTPException, OSError):
+        logger.exception("Could not send verification email to user %s", user.pk)
+        return False
+    return True
