@@ -6,7 +6,7 @@ from django.contrib.auth import views as auth_views
 from oauth2_provider import urls as oauth2_urls
 
 from modules.entities.mixins import BrandedAuthMixin
-from modules.entities.views import RegisterView
+from modules.entities.views import RegisterView, VerifyEmailView
 
 
 # -- Branded auth views (inject app branding via client_id) ----------------
@@ -51,6 +51,11 @@ urlpatterns = [
     path("o/", include(oauth2_urls)),
     path("entities/", include("modules.entities.urls", namespace="entities")),
     path("register/", BrandedRegisterView.as_view(), name="register"),
+    path(
+        "verify-email/<uidb64>/<token>/",
+        VerifyEmailView.as_view(),
+        name="verify_email",
+    ),
     path("login/", BrandedLoginView.as_view(), name="login"),
     path("logout/", BrandedLogoutView.as_view(), name="logout"),
     path(

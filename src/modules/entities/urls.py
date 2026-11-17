@@ -18,6 +18,11 @@ urlpatterns = [
         name="console_security",
     ),
     path(
+        "console/verify-email/resend/",
+        views.ResendVerificationView.as_view(),
+        name="console_resend_verification",
+    ),
+    path(
         "console/sessions/",
         views.ConsoleSessionsView.as_view(),
         name="console_sessions",

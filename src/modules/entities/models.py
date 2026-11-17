@@ -117,6 +117,7 @@ class Entity(AuthyBaseModel, AbstractBaseUser, PermissionsMixin):
         choices=EntityType.choices, max_length=3, default=EntityType.PERSON
     )
     email = models.EmailField(max_length=255, unique=True, blank=False, null=False)  # noqa
+    email_verified = models.BooleanField(default=False)
 
     # Access + Priviledges
     is_active = models.BooleanField(default=False)

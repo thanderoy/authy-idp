@@ -4,7 +4,11 @@ from modules.entities.models import Entity
 from modules.entities.serializers import EntitySerializer, EntityMeSerializer
 
 from django.views.generic.edit import CreateView, UpdateView
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, View
+from django.views.decorators.http import require_POST
+from django.utils.decorators import method_decorator
+from django.utils.http import urlsafe_base64_decode
+from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.contrib.auth import login
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -13,6 +17,10 @@ from django.contrib import messages
 from django.conf import settings
 
 from modules.entities.forms import CustomUserCreationForm, UserUpdateForm
+from modules.entities.verification import (
+    email_verification_token,
+    send_verification_email,
+)
 
 
 class RegisterView(CreateView):
@@ -32,7 +40,40 @@ class RegisterView(CreateView):
             user,
             backend="django.contrib.auth.backends.ModelBackend",
         )
+        send_verification_email(self.request, user)
         return response
+
+
+class VerifyEmailView(View):
+    """Marks the address verified when the signed link checks out."""
+
+    def get(self, request, uidb64, token):
+        try:
+            user = Entity.objects.get(pk=urlsafe_base64_decode(uidb64).decode())
+        except (TypeError, ValueError, OverflowError, Entity.DoesNotExist):
+            user = None
+
+        verified = user is not None and email_verification_token.check_token(
+            user, token
+        )
+        if verified:
+            user.email_verified = True
+            user.save(update_fields=["email_verified"])
+        return render(
+            request,
+            "registration/verify_email_done.html",
+            {"verified": verified},
+            status=200 if verified else 400,
+        )
+
+
+@method_decorator(require_POST, name="dispatch")
+class ResendVerificationView(LoginRequiredMixin, View):
+    def post(self, request):
+        if not request.user.email_verified:
+            send_verification_email(request, request.user)
+            messages.success(request, "We've sent a new verification link.")
+        return redirect("entities:console_profile")
 
 
 class EntityViewSet(viewsets.ModelViewSet):

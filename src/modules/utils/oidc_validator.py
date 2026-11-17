@@ -34,7 +34,7 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "email": user.email,
-            "email_verified": getattr(user, "email_verified", True),
+            "email_verified": user.email_verified,
             "preferred_username": user.email,
             "name": f"{user.first_name} {user.last_name}".strip(),
         }
@@ -74,7 +74,7 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
 
         if request.scopes and "email" in request.scopes:
             claims["email"] = request.user.email
-            claims["email_verified"] = getattr(request.user, "email_verified", True)
+            claims["email_verified"] = request.user.email_verified
 
         if request.scopes and "groups" in request.scopes:
             if hasattr(request.user, "parent_entities"):
