@@ -86,24 +86,13 @@ def test_behind_tls_terminating_proxy_no_redirect_and_https_issuer(client):
     assert response.json()["token_endpoint"].startswith("https://")
 
 
-def test_settings_trust_proxy_headers_only_when_configured():
-    import subprocess
-    import sys
-
+def test_settings_trust_proxy_headers_only_when_configured(load_settings):
     probe = (
-        "import django,os;os.environ['DJANGO_SETTINGS_MODULE']='config.settings';"
+        "import os;os.environ['DJANGO_SETTINGS_MODULE']='config.settings';"
         "from django.conf import settings as s;"
         "print(getattr(s,'SECURE_PROXY_SSL_HEADER',None), s.USE_X_FORWARDED_HOST)"
     )
-    env = {"DJANGO_SECRET_KEY": "x", "PATH": "/usr/bin:/bin", "PYTHONPATH": "src"}
-    direct = subprocess.run(
-        [sys.executable, "-c", probe], env=env, capture_output=True, text=True
-    )
-    proxied = subprocess.run(
-        [sys.executable, "-c", probe],
-        env={**env, "TRUSTED_PROXY_COUNT": "1"},
-        capture_output=True,
-        text=True,
-    )
+    direct = load_settings(probe)
+    proxied = load_settings(probe, TRUSTED_PROXY_COUNT="1")
     assert direct.stdout.strip() == "None False", direct.stderr
     assert proxied.stdout.strip() == "('HTTP_X_FORWARDED_PROTO', 'https') True"

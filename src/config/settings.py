@@ -231,9 +231,21 @@ REST_FRAMEWORK = {
     },
 }
 
+
 # OAuth2 Provider Configuration
+# The OIDC signing key comes from, in order: OIDC_RSA_PRIVATE_KEY (the PEM
+# itself), the file at OIDC_RSA_PRIVATE_KEY_PATH, or oidc.key at the repo
+# root. Without one the server refuses to start; tests get a throwaway key.
+# Retired keys listed in OIDC_RSA_PRIVATE_KEYS_INACTIVE_PATHS stay in JWKS
+# so tokens they signed still verify during a rotation.
+def _read_key(path: Path) -> str:
+    if not path.is_file():
+        raise ImproperlyConfigured(f"OIDC signing key not found at {path}.")
+    return path.read_text()
+
+
 oidc_key_val = config("OIDC_RSA_PRIVATE_KEY", default="")
-if oidc_key_val == "$(cat oidc.key)" or not oidc_key_val.startswith("-----BEGIN"):
+if not oidc_key_val.startswith("-----BEGIN"):
     if TESTING:
         from jwcrypto import jwk
 
@@ -242,13 +254,24 @@ if oidc_key_val == "$(cat oidc.key)" or not oidc_key_val.startswith("-----BEGIN"
             "utf-8"
         )
     else:
-        key_path = BASE_DIR / "oidc.key"
-        if key_path.exists():
-            oidc_key_val = key_path.read_text()
+        oidc_key_val = _read_key(
+            Path(
+                config(
+                    "OIDC_RSA_PRIVATE_KEY_PATH",
+                    default=str(BASE_DIR.parent / "oidc.key"),
+                )
+            )
+        )
+
+OIDC_INACTIVE_KEYS = [
+    _read_key(Path(path))
+    for path in config("OIDC_RSA_PRIVATE_KEYS_INACTIVE_PATHS", default="", cast=Csv())
+]
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "OIDC_RSA_PRIVATE_KEY": oidc_key_val,
+    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": OIDC_INACTIVE_KEYS,
     "OAUTH2_VALIDATOR_CLASS": "modules.utils.oidc_validator.EnhancedAuthyOAuth2Validator",
     "SCOPES": {
         "openid": "OpenID Connect scope",
@@ -305,6 +328,11 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 
 # Logging Configuration
+# Log files go to LOG_DIR (default src/logs/), created on startup so a fresh
+# checkout or container doesn't fail with "Unable to configure handler".
+LOG_DIR = Path(config("LOG_DIR", default=str(BASE_DIR / "logs")))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -331,7 +359,7 @@ LOGGING = {
         "file": {
             "level": "ERROR",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "django.log",
+            "filename": LOG_DIR / "django.log",
             "maxBytes": 1024 * 1024 * 10,  # 10 MB
             "backupCount": 10,
             "formatter": "verbose",
@@ -339,7 +367,7 @@ LOGGING = {
         "security": {
             "level": "WARNING",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "security.log",
+            "filename": LOG_DIR / "security.log",
             "maxBytes": 1024 * 1024 * 10,  # 10 MB
             "backupCount": 10,
             "formatter": "verbose",
