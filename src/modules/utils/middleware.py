@@ -1,5 +1,6 @@
 """Security middleware for Authy OIDC Server"""
 
+import ipaddress
 import logging
 import time
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -147,15 +148,19 @@ class AuditLoggingMiddleware(MiddlewareMixin):
         "/o/authorize/",
         "/o/revoke/",
         "/o/introspect/",
-        "/admin/",
         "/entities/",
     ]
+
+    def _is_sensitive(self, path: str) -> bool:
+        return path.startswith(admin_path()) or any(
+            endpoint in path for endpoint in self.SENSITIVE_ENDPOINTS
+        )
 
     def process_request(self, request: HttpRequest) -> None:
         """Log incoming requests to sensitive endpoints"""
         request._start_time = time.time()  # type: ignore
 
-        if any(endpoint in request.path for endpoint in self.SENSITIVE_ENDPOINTS):
+        if self._is_sensitive(request.path):
             logger.info(
                 f"Audit: {request.method} {request.path} from "
                 f"{get_client_ip(request)} "
@@ -170,7 +175,7 @@ class AuditLoggingMiddleware(MiddlewareMixin):
         if hasattr(request, "_start_time"):
             duration = time.time() - request._start_time
 
-            if any(endpoint in request.path for endpoint in self.SENSITIVE_ENDPOINTS):
+            if self._is_sensitive(request.path):
                 logger.info(
                     f"Audit Response: {request.method} {request.path} "
                     f"Status: {response.status_code} "
@@ -182,7 +187,7 @@ class AuditLoggingMiddleware(MiddlewareMixin):
     def process_exception(self, request: HttpRequest, exception: Exception) -> None:
         """Log exceptions in sensitive endpoints"""
 
-        if any(endpoint in request.path for endpoint in self.SENSITIVE_ENDPOINTS):
+        if self._is_sensitive(request.path):
             logger.error(
                 f"Audit Exception: {request.method} {request.path} "
                 f"Exception: {type(exception).__name__}: {str(exception)} "
@@ -190,38 +195,56 @@ class AuditLoggingMiddleware(MiddlewareMixin):
             )
 
 
+def admin_path() -> str:
+    return f"/{settings.ADMIN_URL}"
+
+
 class IPWhitelistMiddleware(MiddlewareMixin):
-    """IP whitelist middleware for admin and sensitive endpoints"""
+    """IP whitelist middleware for admin and sensitive endpoints
+
+    ADMIN_IP_WHITELIST holds addresses or CIDR ranges. Outside DEBUG an empty
+    list denies everyone; "*" allows all addresses explicitly (the admin
+    still needs a password and an OTP token).
+    """
 
     def process_request(self, request: HttpRequest) -> HttpResponse | None:
         """Check if IP is whitelisted for sensitive endpoints"""
 
         # Only apply to admin endpoints
-        if not request.path.startswith("/admin/"):
+        if not request.path.startswith(admin_path()):
             return None
 
         # Skip in debug mode
         if settings.DEBUG:
             return None
 
-        # Get whitelisted IPs from settings
-        whitelisted_ips = getattr(settings, "ADMIN_IP_WHITELIST", [])
-
-        if not whitelisted_ips:
-            # If no whitelist is configured, allow all (but log warning)
-            logger.warning("No IP whitelist configured for admin access")
-            return None
-
+        whitelist = getattr(settings, "ADMIN_IP_WHITELIST", [])
         client_ip = get_client_ip(request)
 
-        # Check if client IP is in whitelist
-        if client_ip not in whitelisted_ips:
-            logger.warning(f"Unauthorized admin access attempt from {client_ip}")
-            return JsonResponse(
-                {"error": "forbidden", "message": "Access denied"}, status=403
-            )
+        if "*" in whitelist or self._is_whitelisted(client_ip, whitelist):
+            return None
 
-        return None
+        if not whitelist:
+            logger.warning("Admin access refused: ADMIN_IP_WHITELIST is empty")
+        else:
+            logger.warning(f"Unauthorized admin access attempt from {client_ip}")
+        return JsonResponse(
+            {"error": "forbidden", "message": "Access denied"}, status=403
+        )
+
+    @staticmethod
+    def _is_whitelisted(client_ip: str, whitelist: list[str]) -> bool:
+        try:
+            address = ipaddress.ip_address(client_ip)
+        except ValueError:
+            return False
+        for entry in whitelist:
+            try:
+                if address in ipaddress.ip_network(entry, strict=False):
+                    return True
+            except ValueError:
+                logger.error(f"Ignoring invalid ADMIN_IP_WHITELIST entry: {entry}")
+        return False
 
 
 class RequestSizeMiddleware(MiddlewareMixin):

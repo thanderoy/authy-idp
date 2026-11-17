@@ -53,6 +53,12 @@ INSTALLED_APPS = [
     "django_extensions",
 ]
 
+OTP_APPS = [
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
+]
+
 LOCAL_APPS = [
     "modules.entities",
 ]
@@ -63,7 +69,7 @@ THIRD_PARTY_APPS = []
 if not DEBUG:
     THIRD_PARTY_APPS += ["django_prometheus"]  # For production monitoring
 
-INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
+INSTALLED_APPS += OTP_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -75,6 +81,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",
     "modules.utils.middleware.SessionSecurityMiddleware",
     "oauth2_provider.middleware.OAuth2TokenMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -205,6 +212,16 @@ SPECTACULAR_SETTINGS = {
         "displayOperationId": True,
     },
 }
+
+# Admin
+# Served at ADMIN_URL instead of the well-known admin/. Outside DEBUG it is
+# reachable only from ADMIN_IP_WHITELIST (addresses or CIDR ranges, "*" for
+# any) and, with ADMIN_REQUIRE_OTP, only after an OTP token. Bootstrap the
+# first admin with `manage.py addstatictoken <email>`, then add a TOTP device.
+ADMIN_URL = config("ADMIN_URL", default="admin/").strip("/") + "/"
+ADMIN_IP_WHITELIST = config("ADMIN_IP_WHITELIST", default="", cast=Csv())
+ADMIN_REQUIRE_OTP = config("ADMIN_REQUIRE_OTP", default=not DEBUG, cast=bool)
+OTP_TOTP_ISSUER = "Authy"
 
 # Authentication
 AUTH_USER_MODEL = "entities.Entity"

@@ -98,6 +98,7 @@ dependencies = [
     { name = "django-cors-headers" },
     { name = "django-extensions" },
     { name = "django-oauth-toolkit" },
+    { name = "django-otp" },
     { name = "django-prometheus" },
     { name = "django-shortcuts" },
     { name = "djangorestframework" },
@@ -106,6 +107,7 @@ dependencies = [
     { name = "jwcrypto" },
     { name = "psycopg2-binary" },
     { name = "python-decouple" },
+    { name = "qrcode" },
     { name = "redis" },
     { name = "sentry-sdk" },
     { name = "whitenoise" },
@@ -137,6 +139,7 @@ requires-dist = [
     { name = "django-cors-headers", specifier = ">=4.5.0" },
     { name = "django-extensions", specifier = ">=3.2.3" },
     { name = "django-oauth-toolkit", specifier = ">=3.0.1" },
+    { name = "django-otp", specifier = ">=1.5" },
     { name = "django-prometheus", specifier = ">=2.4.1" },
     { name = "django-shortcuts", specifier = ">=1.6" },
     { name = "djangorestframework", specifier = ">=3.16.1" },
@@ -145,6 +148,7 @@ requires-dist = [
     { name = "jwcrypto", specifier = ">=1.5.6" },
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "python-decouple", specifier = ">=3.8" },
+    { name = "qrcode", specifier = ">=8.0" },
     { name = "redis", specifier = ">=5.2" },
     { name = "sentry-sdk", specifier = ">=2.53.0" },
     { name = "whitenoise", specifier = ">=6.8" },
@@ -658,6 +662,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/66/42/b3c6a5d7e204011a702cc02ababb756d10538645dfd188ea441e4c65a082/django_oauth_toolkit-3.4.1.tar.gz", hash = "sha256:c4de73c0765eed55a99ea0fa8433b20664dcc1f43930149cff569abed166c5c2", size = 256139, upload-time = "2026-08-21T03:45:36.538Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/16/11cf2eacd7ac1c32908288b6d56fadef5676071a4ac0af7e626fd1abd3ef/django_oauth_toolkit-3.4.1-py3-none-any.whl", hash = "sha256:c47f2a70e83bade0a47a5e9b20e86030d8ed9c0a8f10ec4ed30446cad7291f2d", size = 163957, upload-time = "2026-08-21T03:45:34.904Z" },
+]
+
+[[package]]
+name = "django-otp"
+version = "1.7.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d0/e9/db4349d7a866e6d5153b31fa740b17f5893723715edf7d1673615d9f462c/django_otp-1.7.5.tar.gz", hash = "sha256:7f554d21dcd035550c3b8e3f154b1f422fee71fdc75c8a3bf96e42a2ea6dafcc", size = 79637, upload-time = "2026-10-16T14:48:48.98Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/bc/bda771669006e7e112bed31a330636ff0b3c3407b053c10c492368c35f6f/django_otp-1.7.5-py3-none-any.whl", hash = "sha256:475d4111e07d61616996f098d08d29884da6397273a11f53c1b8e8c75d27e1dc", size = 73805, upload-time = "2026-10-16T14:48:47.793Z" },
 ]
 
 [[package]]
@@ -1599,6 +1615,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/eb/2e/79c822141bfd05a853236b504869ebc6b70159afc570e1d5a20641782eaa/pyyaml_env_tag-1.1.tar.gz", hash = "sha256:2eb38b75a2d21ee0475d6d97ec19c63287a7e140231e4214969d0eac923cd7ff", size = 5737, upload-time = "2025-05-13T15:24:01.64Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/11/432f32f8097b03e3cd5fe57e88efb685d964e2e5178a48ed61e841f7fdce/pyyaml_env_tag-1.1-py3-none-any.whl", hash = "sha256:17109e1a528561e32f026364712fee1264bc2ea6715120891174ed1b980d2e04", size = 4722, upload-time = "2025-05-13T15:23:59.629Z" },
+]
+
+[[package]]
+name = "qrcode"
+version = "8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/b2/7fc2931bfae0af02d5f53b174e9cf701adbb35f39d69c2af63d4a39f81a9/qrcode-8.2.tar.gz", hash = "sha256:35c3f2a4172b33136ab9f6b3ef1c00260dd2f66f858f24d88418a015f446506c", size = 43317, upload-time = "2025-05-01T15:44:24.726Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/b8/d2d6d731733f51684bbf76bf34dab3b70a9148e8f2cef2bb544fccec681a/qrcode-8.2-py3-none-any.whl", hash = "sha256:16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f", size = 45986, upload-time = "2025-05-01T15:44:22.781Z" },
 ]
 
 [[package]]

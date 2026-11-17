@@ -7,6 +7,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from django.http import HttpResponseRedirect
+from django_otp.admin import OTPAdminSite
 from oauth2_provider import urls as oauth2_urls
 
 from modules.entities.mixins import BrandedAuthMixin
@@ -60,8 +61,12 @@ class BrandedRegisterView(BrandedAuthMixin, RegisterView):
 
 # --------------------------------------------------------------------------
 
+if settings.ADMIN_REQUIRE_OTP:
+    # Admin login then asks for a TOTP or static backup token as well.
+    admin.site.__class__ = OTPAdminSite
+
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(settings.ADMIN_URL, admin.site.urls),
     path("o/", include(oauth2_urls)),
     path("entities/", include("modules.entities.urls", namespace="entities")),
     path("register/", BrandedRegisterView.as_view(), name="register"),
