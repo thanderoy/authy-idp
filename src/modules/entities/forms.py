@@ -4,7 +4,7 @@ from modules.entities.models import Entity
 
 
 class CustomUserCreationForm(UserCreationForm):
-    class Meta(UserCreationForm.Meta):  # type: ignore
+    class Meta(UserCreationForm.Meta):
         model = Entity
         fields = ("first_name", "last_name", "email")
 

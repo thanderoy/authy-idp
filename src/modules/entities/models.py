@@ -126,7 +126,7 @@ class Entity(AuthyBaseModel, AbstractBaseUser, PermissionsMixin):
     is_system_entity = models.BooleanField(default=False)
 
     # Relationships
-    child_entities = models.ManyToManyField(  # type: ignore
+    child_entities = models.ManyToManyField(
         "self",
         through="Relationship",
         symmetrical=False,
