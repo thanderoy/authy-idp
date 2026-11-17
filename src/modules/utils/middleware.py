@@ -207,32 +207,39 @@ def admin_path() -> str:
 class IPWhitelistMiddleware(MiddlewareMixin):
     """IP whitelist middleware for admin and sensitive endpoints
 
-    ADMIN_IP_WHITELIST holds addresses or CIDR ranges. Outside DEBUG an empty
-    list denies everyone; "*" allows all addresses explicitly (the admin
-    still needs a password and an OTP token).
+    The admin is guarded by ADMIN_IP_WHITELIST and /metrics by
+    METRICS_IP_WHITELIST; each holds addresses or CIDR ranges. Outside DEBUG
+    an empty list denies everyone; "*" allows all addresses explicitly.
     """
+
+    def _whitelist_setting(self, path: str) -> str | None:
+        if path.startswith(admin_path()):
+            return "ADMIN_IP_WHITELIST"
+        if path == "/metrics" or path.startswith("/metrics/"):
+            return "METRICS_IP_WHITELIST"
+        return None
 
     def process_request(self, request: HttpRequest) -> HttpResponse | None:
         """Check if IP is whitelisted for sensitive endpoints"""
 
-        # Only apply to admin endpoints
-        if not request.path.startswith(admin_path()):
+        setting = self._whitelist_setting(request.path)
+        if setting is None:
             return None
 
         # Skip in debug mode
         if settings.DEBUG:
             return None
 
-        whitelist = getattr(settings, "ADMIN_IP_WHITELIST", [])
+        whitelist = getattr(settings, setting, [])
         client_ip = get_client_ip(request)
 
         if "*" in whitelist or self._is_whitelisted(client_ip, whitelist):
             return None
 
         if not whitelist:
-            logger.warning("Admin access refused: ADMIN_IP_WHITELIST is empty")
+            logger.warning(f"Access to {request.path} refused: {setting} is empty")
         else:
-            logger.warning(f"Unauthorized admin access attempt from {client_ip}")
+            logger.warning(f"Unauthorized access to {request.path} from {client_ip}")
         return JsonResponse(
             {"error": "forbidden", "message": "Access denied"}, status=403
         )
@@ -248,7 +255,7 @@ class IPWhitelistMiddleware(MiddlewareMixin):
                 if address in ipaddress.ip_network(entry, strict=False):
                     return True
             except ValueError:
-                logger.error(f"Ignoring invalid ADMIN_IP_WHITELIST entry: {entry}")
+                logger.error(f"Ignoring invalid IP whitelist entry: {entry}")
         return False
 
 

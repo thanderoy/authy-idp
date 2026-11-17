@@ -226,6 +226,8 @@ SPECTACULAR_SETTINGS = {
 # first admin with `manage.py addstatictoken <email>`, then add a TOTP device.
 ADMIN_URL = config("ADMIN_URL", default="admin/").strip("/") + "/"
 ADMIN_IP_WHITELIST = config("ADMIN_IP_WHITELIST", default="", cast=Csv())
+# Prometheus scrapes /metrics (outside DEBUG); same rules as the admin list.
+METRICS_IP_WHITELIST = config("METRICS_IP_WHITELIST", default="", cast=Csv())
 ADMIN_REQUIRE_OTP = config("ADMIN_REQUIRE_OTP", default=not DEBUG, cast=bool)
 OTP_TOTP_ISSUER = "Authy"
 

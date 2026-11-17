@@ -116,3 +116,7 @@ urlpatterns = [
         name="password_reset_complete",
     ),
 ]
+
+if "django_prometheus" in settings.INSTALLED_APPS:
+    # /metrics, restricted to METRICS_IP_WHITELIST by IPWhitelistMiddleware.
+    urlpatterns.append(path("", include("django_prometheus.urls")))

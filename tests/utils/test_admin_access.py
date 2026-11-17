@@ -89,3 +89,20 @@ class TestAdminRequiresOTP:
         client.logout()
         self._login(client, otp_device=device.persistent_id, otp_token="bootstrap1")
         assert client.get("/admin/").status_code == 302
+
+
+@pytest.mark.django_db
+class TestMetricsEndpoint:
+    def test_served_to_whitelisted_scraper(self, client, settings):
+        settings.METRICS_IP_WHITELIST = ["10.0.0.0/8"]
+        response = client.get("/metrics", REMOTE_ADDR="10.1.2.3")
+        assert response.status_code == 200
+        assert b"django_http_requests" in response.content
+
+    def test_refused_when_whitelist_empty(self, client, settings):
+        settings.METRICS_IP_WHITELIST = []
+        assert client.get("/metrics", REMOTE_ADDR="10.1.2.3").status_code == 403
+
+    def test_refused_outside_whitelist(self, client, settings):
+        settings.METRICS_IP_WHITELIST = ["10.0.0.0/8"]
+        assert client.get("/metrics", REMOTE_ADDR="203.0.113.9").status_code == 403
