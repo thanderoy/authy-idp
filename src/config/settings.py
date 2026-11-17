@@ -50,7 +50,6 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "drf_spectacular",
-    "django_extensions",
 ]
 
 OTP_APPS = [
@@ -66,6 +65,13 @@ LOCAL_APPS = [
 THIRD_PARTY_APPS = []
 
 # Add apps based on environment
+if DEBUG:
+    # Dev tooling (shell_plus, runserver_plus) lives in the dev dependency
+    # group, so it isn't installed in the production image.
+    from importlib.util import find_spec
+
+    if find_spec("django_extensions"):
+        THIRD_PARTY_APPS += ["django_extensions"]
 if not DEBUG:
     THIRD_PARTY_APPS += ["django_prometheus"]  # For production monitoring
 

@@ -96,11 +96,9 @@ dependencies = [
     { name = "dj-database-url" },
     { name = "django" },
     { name = "django-cors-headers" },
-    { name = "django-extensions" },
     { name = "django-oauth-toolkit" },
     { name = "django-otp" },
     { name = "django-prometheus" },
-    { name = "django-shortcuts" },
     { name = "djangorestframework" },
     { name = "drf-spectacular" },
     { name = "gunicorn" },
@@ -115,6 +113,8 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "django-extensions" },
+    { name = "django-shortcuts" },
     { name = "django-stubs" },
     { name = "djangorestframework-stubs" },
     { name = "flake8" },
@@ -137,11 +137,9 @@ requires-dist = [
     { name = "dj-database-url", specifier = ">=2.3.0" },
     { name = "django", specifier = ">=5.2.8,<5.3" },
     { name = "django-cors-headers", specifier = ">=4.5.0" },
-    { name = "django-extensions", specifier = ">=3.2.3" },
     { name = "django-oauth-toolkit", specifier = ">=3.0.1" },
     { name = "django-otp", specifier = ">=1.5" },
     { name = "django-prometheus", specifier = ">=2.4.1" },
-    { name = "django-shortcuts", specifier = ">=1.6" },
     { name = "djangorestframework", specifier = ">=3.16.1" },
     { name = "drf-spectacular", specifier = ">=0.28.0" },
     { name = "gunicorn", specifier = ">=25.1.0" },
@@ -156,6 +154,8 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "django-extensions", specifier = ">=4.1" },
+    { name = "django-shortcuts", specifier = ">=1.6" },
     { name = "django-stubs", specifier = ">=5.2.9" },
     { name = "djangorestframework-stubs", specifier = ">=3.16.8" },
     { name = "flake8", specifier = ">=7.1.1" },
