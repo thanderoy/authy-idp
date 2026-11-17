@@ -14,6 +14,11 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+def fingerprint(token: str) -> str:
+    """Short, non-reversible tag for correlating a token across log lines."""
+    return hashlib.sha256(token.encode()).hexdigest()[:12]
+
+
 class EnhancedAuthyOAuth2Validator(OAuth2Validator):
     """Enhanced OAuth2 Validator with additional security and functionality"""
 
@@ -78,7 +83,7 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
         """
         # Check if token is blacklisted
         if self._is_token_blacklisted(token):
-            logger.warning(f"Attempted use of blacklisted token: {token[:10]}...")
+            logger.warning(f"Attempted use of blacklisted token: {fingerprint(token)}")
             return False
 
         # Perform standard validation
@@ -277,5 +282,5 @@ class EnhancedAuthyOAuth2Validator(OAuth2Validator):
     def _log_token_revocation(self, token: str, request: Request) -> None:
         """Log token revocation for audit"""
         logger.info(
-            f"Token revoked: {token[:10]}... by client {request.client.client_id if request.client else 'unknown'}"
+            f"Token revoked: {fingerprint(token)} by client {request.client.client_id if request.client else 'unknown'}"
         )

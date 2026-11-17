@@ -145,3 +145,34 @@ class TestEnhancedValidator:
             cache.get(f"token_last_used:{hashlib.sha256(b'token').hexdigest()}")
             == "192.168.1.1"
         )
+
+
+@pytest.mark.django_db
+def test_logs_never_contain_token_material(validator, mock_request, caplog):
+    import logging
+
+    secret = "SuperSecretAccessToken1234567890"
+    caplog.set_level(logging.INFO)
+    validator._blacklist_token(secret, "access_token")
+    validator.validate_bearer_token(secret, [], mock_request)
+    with patch("oauth2_provider.oauth2_validators.OAuth2Validator.revoke_token"):
+        validator.revoke_token(secret, "access_token", mock_request)
+    assert caplog.records
+    assert not any(secret[:6] in record.getMessage() for record in caplog.records)
+
+
+def test_audit_log_omits_exception_text(rf, caplog):
+    import logging
+
+    from django.contrib.auth.models import AnonymousUser
+
+    from modules.utils.middleware import AuditLoggingMiddleware
+
+    request = rf.post("/o/token/")
+    request.user = AnonymousUser()
+    caplog.set_level(logging.ERROR)
+    AuditLoggingMiddleware(lambda r: None).process_exception(
+        request, ValueError("password=hunter2")
+    )
+    assert "ValueError" in caplog.text
+    assert "hunter2" not in caplog.text

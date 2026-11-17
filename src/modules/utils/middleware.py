@@ -190,7 +190,7 @@ class AuditLoggingMiddleware(MiddlewareMixin):
         if self._is_sensitive(request.path):
             logger.error(
                 f"Audit Exception: {request.method} {request.path} "
-                f"Exception: {type(exception).__name__}: {str(exception)} "
+                f"Exception: {type(exception).__name__} "
                 f"User: {request.user.id if request.user.is_authenticated else 'Anonymous'}"
             )
 
