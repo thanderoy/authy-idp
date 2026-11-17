@@ -1,23 +1,69 @@
+# Production stack: the app, Postgres and Redis. Nothing is published on the
+# host; attach the app to Traefik's network (see DEPLOYMENT.md). Every
+# ${VAR:?} must be set in the environment or an --env-file.
 services:
-  django:
+  app:
     build: .
-    container_name: authy-oidc-server
-    command: bash -c "django m; django mm; django r 0.0.0.0:8000"
+    image: authy-oidc-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DEBUG: "False"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@db:5432/${POSTGRES_DB:?}
+      REDIS_URL: redis://redis:6379/0
+      TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-1}
+      OIDC_RSA_PRIVATE_KEY_PATH: /run/secrets/oidc.key
+      ADMIN_URL: ${ADMIN_URL:?}
+      ADMIN_IP_WHITELIST: ${ADMIN_IP_WHITELIST:?}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:?}
+      EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+      EMAIL_HOST: ${EMAIL_HOST:?}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
     volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
+      # chown the key to 10001 (the container's appuser) and chmod 400.
+      - ${OIDC_KEY_FILE:?}:/run/secrets/oidc.key:ro
+    expose:
+      - "8000"
 
   db:
     image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
     volumes:
       - postgres_data:/var/lib/postgresql/data/
-    environment:
-      - POSTGRES_USER=hello_django
-      - POSTGRES_PASSWORD=hello_django
-      - POSTGRES_DB=hello_django_dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Append-only file, so a restart keeps sessions' cache, lockouts and the
+    # token blacklist (sessions themselves are also in Postgres).
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
+  redis_data:
