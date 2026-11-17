@@ -8,6 +8,7 @@ from django.contrib.auth.models import (
 )
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 
 from modules.common.models import AuthyBaseModel
 
@@ -25,6 +26,15 @@ def validate_hex_color(value: str) -> None:
 
 class EntityManager(BaseUserManager):
     use_in_migrations = True
+
+    @classmethod
+    def normalize_email(cls, email):
+        # The whole address is lowercased, not just the domain, so that
+        # "Victim@x.com" and "victim@x.com" can't be two accounts.
+        return (email or "").strip().lower()
+
+    def get_by_natural_key(self, username):
+        return self.get(**{f"{self.model.USERNAME_FIELD}__iexact": username})
 
     def _create_user(
         self, first_name, last_name, email, password, entity_type="PSN", **extra_fields
@@ -132,6 +142,13 @@ class Entity(AuthyBaseModel, AbstractBaseUser, PermissionsMixin):
             "first_name",
             "last_name",
         )
+        constraints = [
+            models.UniqueConstraint(Lower("email"), name="entity_email_ci_unique"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.email = self.__class__.objects.normalize_email(self.email)
+        super().save(*args, **kwargs)
 
     @property
     def names(self):

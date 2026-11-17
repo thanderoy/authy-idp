@@ -8,6 +8,9 @@ class CustomUserCreationForm(UserCreationForm):
         model = Entity
         fields = ("first_name", "last_name", "email")
 
+    def clean_email(self):
+        return Entity.objects.normalize_email(self.cleaned_data.get("email"))
+
 
 class UserUpdateForm(forms.ModelForm):
     class Meta:

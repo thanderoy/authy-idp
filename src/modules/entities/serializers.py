@@ -32,6 +32,15 @@ class EntitySerializer(serializers.ModelSerializer):
         read_only_fields = ("uuid", "is_active", "is_system_entity")
         extra_kwargs = {"password": {"write_only": True}}
 
+    def validate_email(self, value):
+        value = Entity.objects.normalize_email(value)
+        existing = Entity.objects.filter(email__iexact=value)
+        if self.instance is not None:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise ValidationError("An account with this email already exists.")
+        return value
+
     def validate(self, attrs):
         attrs = super(EntitySerializer, self).validate(attrs)
         if "confirm_password" in attrs or "password" in attrs:
