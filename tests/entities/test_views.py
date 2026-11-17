@@ -283,3 +283,26 @@ class TestConsoleViews:
         current = sessions[0]
         assert current["ip"] == "192.168.1.42"
         assert current["user_agent"] == "TestBrowser/1.0"
+
+
+@pytest.mark.django_db
+class TestLanding:
+    def test_root_leads_to_login_when_signed_out(self, client):
+        response = client.get("/", follow=True)
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0].startswith("/login/")
+
+    def test_root_leads_to_console_when_signed_in(self, client, auth_user):
+        client.force_login(auth_user)
+        response = client.get("/", follow=True)
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == "/entities/console/profile/"
+
+    def test_login_lands_on_a_real_page(self, client, auth_user, test_password):
+        response = client.post(
+            "/login/",
+            {"username": auth_user.email, "password": test_password},
+            follow=True,
+        )
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == "/entities/console/profile/"

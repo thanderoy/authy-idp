@@ -234,7 +234,7 @@ OTP_TOTP_ISSUER = "Authy"
 # Authentication
 AUTH_USER_MODEL = "entities.Entity"
 LOGIN_URL = "/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/entities/console/profile/"
 LOGOUT_REDIRECT_URL = "/"
 
 AUTHENTICATION_BACKENDS = [

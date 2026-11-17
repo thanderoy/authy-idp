@@ -7,6 +7,7 @@ import smtplib
 from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
 from django.http import HttpResponseRedirect
 from django_otp.admin import OTPAdminSite
@@ -78,6 +79,9 @@ if settings.ADMIN_REQUIRE_OTP:
     admin.site.__class__ = OTPAdminSite
 
 urlpatterns = [
+    # Nothing lives at the root; send people to their account console
+    # (which sends signed-out visitors on to the login page).
+    path("", RedirectView.as_view(pattern_name="entities:console_profile")),
     path(settings.ADMIN_URL, admin.site.urls),
     # Shadows DOT's authorize URL (same path, matched first).
     path(
