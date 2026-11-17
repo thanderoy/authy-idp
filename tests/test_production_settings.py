@@ -54,3 +54,16 @@ def test_log_dir_is_created(load_settings, tmp_path):
     result = load_settings(PROBE, LOG_DIR=str(log_dir))
     assert result.returncode == 0, result.stderr
     assert log_dir.is_dir()
+
+
+def test_production_requires_sender_and_defaults_to_smtp(load_settings):
+    probe = (
+        "import os;os.environ['DJANGO_SETTINGS_MODULE']='config.settings';"
+        "from django.conf import settings as s;print(s.EMAIL_BACKEND)"
+    )
+    missing = load_settings(probe, DEFAULT_FROM_EMAIL="")
+    assert missing.returncode != 0
+    assert "DEFAULT_FROM_EMAIL is required" in missing.stderr
+
+    ok = load_settings(probe)
+    assert ok.stdout.strip() == "django.core.mail.backends.smtp.EmailBackend"

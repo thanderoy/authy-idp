@@ -440,15 +440,26 @@ LOGGING = {
 }
 
 # Email Configuration
+# Verification and password-reset mail must really go out in production:
+# SMTP by default, and the sender address has to be set explicitly.
 EMAIL_BACKEND = config(
-    "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend"
+    if DEBUG or TESTING
+    else "django.core.mail.backends.smtp.EmailBackend",
 )
 EMAIL_HOST = config("EMAIL_HOST", default="localhost")
 EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@authy-oidc.com")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
+if not DEFAULT_FROM_EMAIL:
+    if not DEBUG and not TESTING:
+        raise ImproperlyConfigured(
+            "DEFAULT_FROM_EMAIL is required when DEBUG is False."
+        )
+    DEFAULT_FROM_EMAIL = "webmaster@localhost"
 
 # Sentry Configuration (for production error tracking)
 if not DEBUG:

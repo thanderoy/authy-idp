@@ -51,6 +51,7 @@ def load_settings(key_file):
             "OIDC_RSA_PRIVATE_KEY": "",
             "OIDC_RSA_PRIVATE_KEY_PATH": str(key_file("default.key")),
             "TRUSTED_PROXY_COUNT": "0",
+            "DEFAULT_FROM_EMAIL": "noreply@example.test",
         }
         return subprocess.run(
             [sys.executable, "-c", probe],
