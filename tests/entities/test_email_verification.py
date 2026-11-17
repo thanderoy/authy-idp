@@ -6,6 +6,7 @@ from django.core import mail
 
 from modules.entities.verification import email_verification_token
 from modules.utils.oidc_validator import EnhancedAuthyOAuth2Validator
+from tests.passwords import make_test_password
 
 User = get_user_model()
 
@@ -13,8 +14,8 @@ REGISTER_PAYLOAD = {
     "first_name": "New",
     "last_name": "User",
     "email": "newuser@authy.io",
-    "password1": "StrongP@ss2026!",
-    "password2": "StrongP@ss2026!",
+    "password1": make_test_password(),
+    "password2": make_test_password(),
 }
 
 

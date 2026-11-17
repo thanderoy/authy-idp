@@ -4,9 +4,10 @@ from django.test import RequestFactory
 from django_otp.plugins.otp_static.models import StaticDevice
 
 from modules.utils.middleware import IPWhitelistMiddleware
+from tests.passwords import make_test_password, make_otp_token
 
 User = get_user_model()
-PASSWORD = "Adm1n-P@ssword-2026"
+PASSWORD = make_test_password("admin")
 
 
 @pytest.fixture
@@ -75,19 +76,19 @@ class TestAdminRequiresOTP:
 
     def test_password_and_static_token_opens_admin(self, client, admin_user):
         device = StaticDevice.objects.create(user=admin_user, name="backup")
-        device.token_set.create(token="bootstrap1")
+        device.token_set.create(token=make_otp_token())
         response = self._login(
-            client, otp_device=device.persistent_id, otp_token="bootstrap1"
+            client, otp_device=device.persistent_id, otp_token=make_otp_token()
         )
         assert response.status_code == 302
         assert client.get("/admin/").status_code == 200
 
     def test_static_token_is_single_use(self, client, admin_user):
         device = StaticDevice.objects.create(user=admin_user, name="backup")
-        device.token_set.create(token="bootstrap1")
-        self._login(client, otp_device=device.persistent_id, otp_token="bootstrap1")
+        device.token_set.create(token=make_otp_token())
+        self._login(client, otp_device=device.persistent_id, otp_token=make_otp_token())
         client.logout()
-        self._login(client, otp_device=device.persistent_id, otp_token="bootstrap1")
+        self._login(client, otp_device=device.persistent_id, otp_token=make_otp_token())
         assert client.get("/admin/").status_code == 302
 
 

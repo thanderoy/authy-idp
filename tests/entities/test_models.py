@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from modules.entities.models import Entity
+from tests.passwords import make_test_password
 
 User = get_user_model()
 
@@ -85,8 +86,8 @@ class TestRegistrationRejectsCaseVariant:
                 "first_name": "Eve",
                 "last_name": "Attacker",
                 "email": "Victim@example.com",
-                "password1": "StrongP@ss2026!",
-                "password2": "StrongP@ss2026!",
+                "password1": make_test_password(),
+                "password2": make_test_password(),
             },
         )
         assert response.status_code == 200
@@ -102,8 +103,8 @@ class TestRegistrationRejectsCaseVariant:
                 "first_name": "Eve",
                 "last_name": "Attacker",
                 "email": "Victim@example.com",
-                "password": "StrongP@ss2026!",
-                "confirm_password": "StrongP@ss2026!",
+                "password": make_test_password(),
+                "confirm_password": make_test_password(),
             }
         )
         assert not serializer.is_valid()

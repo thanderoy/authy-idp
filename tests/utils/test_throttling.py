@@ -7,9 +7,10 @@ from model_bakery import baker
 from oauth2_provider.models import Application
 
 from modules.utils import throttling
+from tests.passwords import make_test_password
 
 User = get_user_model()
-PASSWORD = "Correct-H0rse-Battery"
+PASSWORD = make_test_password("throttle")
 
 
 @pytest.fixture

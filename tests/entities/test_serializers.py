@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from modules.entities.serializers import EntitySerializer
+from tests.passwords import make_test_password
 
 User = get_user_model()
 
@@ -84,7 +85,7 @@ class TestEntitySerializer:
 
 @pytest.mark.django_db
 class TestEntityMeSerializer:
-    PASSWORD = "Current-P@ss-2026"
+    PASSWORD = make_test_password("current")
 
     @pytest.fixture
     def user(self):
@@ -110,7 +111,11 @@ class TestEntityMeSerializer:
 
     def test_password_change_requires_current_password(self, user):
         serializer = self._update(
-            user, {"password": "N3w-P@ss-2026!", "confirm_password": "N3w-P@ss-2026!"}
+            user,
+            {
+                "password": make_test_password("new"),
+                "confirm_password": make_test_password("new"),
+            },
         )
         assert not serializer.is_valid()
         assert "current_password" in serializer.errors
