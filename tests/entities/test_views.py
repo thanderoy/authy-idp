@@ -6,6 +6,7 @@ from django.urls import reverse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from modules.entities.forms import CustomUserCreationForm
+from modules.entities.models import UserSession
 from modules.entities.views import EntityMeViewset, EntityViewSet
 
 User = get_user_model()
@@ -51,12 +52,68 @@ class TestEntityViews:
         assert response.data["first_name"] == "Marco"
 
     def test_entity_viewset_list(self, api_rf, auth_user):
+        auth_user.is_staff = True
+        auth_user.save()
         view = EntityViewSet.as_view({"get": "list"})
         request = api_rf.get("/entities/")
         force_authenticate(request, user=auth_user)
         response = view(request)
         assert response.status_code == 200
         assert len(response.data) > 0
+
+
+@pytest.mark.django_db
+class TestEntityViewSetAccess:
+    """A signed-in non-staff user must not read or modify other accounts."""
+
+    list_url = "/entities/entities/"
+
+    @pytest.fixture
+    def victim(self):
+        return User.objects.create_user(
+            first_name="Victim",
+            last_name="User",
+            email="victim@example.com",
+            password=_build_test_password(),
+            is_active=True,
+        )
+
+    @pytest.fixture
+    def api_client(self, auth_user):
+        from rest_framework.test import APIClient
+
+        api_client = APIClient()
+        api_client.force_authenticate(user=auth_user)
+        return api_client
+
+    def test_non_staff_cannot_list(self, api_client):
+        assert api_client.get(self.list_url).status_code == 403
+
+    def test_non_staff_cannot_take_over_another_account(self, api_client, victim):
+        new_password = _build_test_password() + "Hijack"
+        response = api_client.patch(
+            f"{self.list_url}{victim.pk}/",
+            {
+                "email": "attacker@example.com",
+                "password": new_password,
+                "confirm_password": new_password,
+            },
+            format="json",
+        )
+        assert response.status_code == 403
+        victim.refresh_from_db()
+        assert victim.email == "victim@example.com"
+        assert not victim.check_password(new_password)
+
+    def test_anonymous_cannot_list(self):
+        from rest_framework.test import APIClient
+
+        assert APIClient().get(self.list_url).status_code in (401, 403)
+
+    def test_staff_can_list(self, api_client, auth_user):
+        auth_user.is_staff = True
+        auth_user.save()
+        assert api_client.get(self.list_url).status_code == 200
 
 
 # --- Comment 2: Registration flow tests ---
@@ -227,3 +284,99 @@ class TestConsoleViews:
         current = sessions[0]
         assert current["ip"] == "192.168.1.42"
         assert current["user_agent"] == "TestBrowser/1.0"
+
+
+@pytest.mark.django_db
+class TestLanding:
+    def test_root_leads_to_login_when_signed_out(self, client):
+        response = client.get("/", follow=True)
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0].startswith("/login/")
+
+    def test_root_leads_to_console_when_signed_in(self, client, auth_user):
+        client.force_login(auth_user)
+        response = client.get("/", follow=True)
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == "/entities/console/profile/"
+
+    def test_login_lands_on_a_real_page(self, client, auth_user, test_password):
+        response = client.post(
+            "/login/",
+            {"username": auth_user.email, "password": test_password},
+            follow=True,
+        )
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == "/entities/console/profile/"
+
+
+@pytest.mark.django_db
+class TestConsoleSessionManagement:
+    @pytest.fixture
+    def laptop(self, client, auth_user, test_password):
+        client.post(
+            "/login/",
+            {"username": auth_user.email, "password": test_password},
+            REMOTE_ADDR="198.51.100.1",
+            HTTP_USER_AGENT="Laptop/1.0",
+        )
+        return client
+
+    @pytest.fixture
+    def phone(self, auth_user, test_password):
+        from django.test import Client
+
+        phone = Client()
+        phone.post(
+            "/login/",
+            {"username": auth_user.email, "password": test_password},
+            REMOTE_ADDR="198.51.100.2",
+            HTTP_USER_AGENT="Phone/2.0",
+        )
+        return phone
+
+    def _sessions(self, client):
+        return client.get("/entities/console/sessions/").context["active_sessions"]
+
+    def test_lists_every_signed_in_device_current_first(self, laptop, phone):
+        sessions = self._sessions(laptop)
+        assert [s["user_agent"] for s in sessions] == ["Laptop/1.0", "Phone/2.0"]
+        assert sessions[1]["ip"] == "198.51.100.2"
+
+    def test_revoking_signs_the_other_device_out(self, laptop, phone):
+        other = self._sessions(laptop)[1]
+        response = laptop.post(f"/entities/console/sessions/{other['id']}/revoke/")
+        assert response.status_code == 302
+        assert phone.get("/entities/console/profile/").status_code == 302  # to login
+        assert len(self._sessions(laptop)) == 1
+
+    def test_cannot_revoke_current_session_via_revoke(self, laptop):
+        mine = self._sessions(laptop)[0]
+        laptop.post(f"/entities/console/sessions/{mine['id']}/revoke/")
+        assert laptop.get("/entities/console/profile/").status_code == 200
+
+    def test_cannot_revoke_someone_elses_session(self, phone, test_password):
+        from django.test import Client
+
+        intruder_user = User.objects.create_user(
+            "Eve", "X", "eve@example.com", test_password, is_active=True
+        )
+        intruder = Client()
+        intruder.force_login(intruder_user)
+        victim_session = UserSession.objects.exclude(user=intruder_user).first()
+        intruder.post(f"/entities/console/sessions/{victim_session.pk}/revoke/")
+        assert phone.get("/entities/console/profile/").status_code == 200
+
+    def test_logout_forgets_the_session(self, laptop, phone):
+        phone.post("/logout/")
+        assert [s["user_agent"] for s in self._sessions(laptop)] == ["Laptop/1.0"]
+
+    def test_expired_sessions_are_pruned(self, laptop, phone):
+        from django.contrib.sessions.models import Session
+        from django.utils import timezone
+
+        other = UserSession.objects.get(user_agent="Phone/2.0")
+        Session.objects.filter(session_key=other.session_key).update(
+            expire_date=timezone.now()
+        )
+        assert len(self._sessions(laptop)) == 1
+        assert not UserSession.objects.filter(pk=other.pk).exists()

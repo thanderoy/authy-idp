@@ -8,6 +8,7 @@ from django.contrib.auth.models import (
 )
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 
 from modules.common.models import AuthyBaseModel
 
@@ -25,6 +26,15 @@ def validate_hex_color(value: str) -> None:
 
 class EntityManager(BaseUserManager):
     use_in_migrations = True
+
+    @classmethod
+    def normalize_email(cls, email):
+        # The whole address is lowercased, not just the domain, so that
+        # "Victim@x.com" and "victim@x.com" can't be two accounts.
+        return (email or "").strip().lower()
+
+    def get_by_natural_key(self, username):
+        return self.get(**{f"{self.model.USERNAME_FIELD}__iexact": username})
 
     def _create_user(
         self, first_name, last_name, email, password, entity_type="PSN", **extra_fields
@@ -107,6 +117,7 @@ class Entity(AuthyBaseModel, AbstractBaseUser, PermissionsMixin):
         choices=EntityType.choices, max_length=3, default=EntityType.PERSON
     )
     email = models.EmailField(max_length=255, unique=True, blank=False, null=False)  # noqa
+    email_verified = models.BooleanField(default=False)
 
     # Access + Priviledges
     is_active = models.BooleanField(default=False)
@@ -115,7 +126,7 @@ class Entity(AuthyBaseModel, AbstractBaseUser, PermissionsMixin):
     is_system_entity = models.BooleanField(default=False)
 
     # Relationships
-    child_entities = models.ManyToManyField(  # type: ignore
+    child_entities = models.ManyToManyField(
         "self",
         through="Relationship",
         symmetrical=False,
@@ -132,6 +143,13 @@ class Entity(AuthyBaseModel, AbstractBaseUser, PermissionsMixin):
             "first_name",
             "last_name",
         )
+        constraints = [
+            models.UniqueConstraint(Lower("email"), name="entity_email_ci_unique"),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.email = self.__class__.objects.normalize_email(self.email)
+        super().save(*args, **kwargs)
 
     @property
     def names(self):
@@ -194,3 +212,25 @@ class ApplicationBranding(AuthyBaseModel):
 
     def __str__(self) -> str:
         return f"Branding for {self.application.name}"
+
+
+class UserSession(models.Model):
+    """One signed-in browser session, so a user can see and end their
+    sessions from the console. Sessions themselves live in Django's
+    session store, which can't be queried by user; this table indexes them.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sessions"
+    )
+    session_key = models.CharField(max_length=40, unique=True)
+    ip = models.CharField(max_length=45, blank=True)  # IPv4 or IPv6
+    user_agent = models.CharField(max_length=255, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-last_seen",)
+
+    def __str__(self) -> str:
+        return f"Session for {self.user_id} from {self.ip}"

@@ -1,72 +1,60 @@
-name: Gitflow CI
+name: CI
 
 on:
   push:
-    branches: [ dev, feature-*, hotfix-*, release-* ]
+    branches: [dev, main]
   pull_request:
-    branches: [ dev, main ]
+    branches: [dev, main]
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # mypy's Django plugin imports settings; give it a dev-mode config.
+      DJANGO_SECRET_KEY: ci-only-not-a-secret
+      DEBUG: "True"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check src tests
+
+      - name: Type check
+        run: |
+          openssl genrsa -out oidc.key 2048
+          uv run mypy src
+
+      - name: Test
+        run: uv run pytest
+
+  audit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up environment
-      run: |
-        echo "Setting up environment"
+      - uses: actions/checkout@v4
 
-    - name: Run tests
-      run: |
-        echo "Running tests"
+      - uses: astral-sh/setup-uv@v6
 
-    - name: Build
-      run: |
-        echo "Building project"
+      - name: Audit locked dependencies for known vulnerabilities
+        run: |
+          uv export --frozen --no-hashes --no-emit-project --format requirements-txt > requirements.lock
+          uvx pip-audit -r requirements.lock --progress-spinner off
 
-  feature_workflow:
-    needs: build
-    if: startsWith(github.ref, 'refs/heads/feature/')
+  docker:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Create pull request to dev
-      uses: peter-evans/create-pull-request@v3
-      with:
-        branch: dev
-        title: "Merge feature branch into dev"
-        body: "Automated PR for feature integration"
+      - uses: actions/checkout@v4
 
-  release_workflow:
-    needs: build
-    if: startsWith(github.ref, 'refs/heads/release/')
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Run UAT tests
-      run: |
-        echo "Running UAT tests"
-    - name: Create pull request to main
-      uses: peter-evans/create-pull-request@v3
-      with:
-        branch: main
-        title: "Release to production"
-        body: "Automated PR for release to production"
-
-  hotfix_workflow:
-    needs: build
-    if: startsWith(github.ref, 'refs/heads/hotfix/')
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: Create pull request to main
-      uses: peter-evans/create-pull-request@v3
-      with:
-        branch: main
-        title: "Hotfix to production"
-        body: "Automated PR for hotfix to production"
-    - name: Create pull request to dev
-      uses: peter-evans/create-pull-request@v3
-      with:
-        branch: dev
-        title: "Merge hotfix into dev"
-        body: "Automated PR to sync hotfix with dev branch"
+      - name: Build image
+        run: docker build -t authy-oidc-server:ci .

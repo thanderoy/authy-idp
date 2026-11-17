@@ -36,7 +36,12 @@
         <label class="form-label">Primary Email Address</label>
         <input type="email" class="form-input form-input-disabled" value="{{ request.user.email }}" readonly disabled>
         <small class="form-help-text">
-            Email addresses are used as primary identifiers and cannot be changed without verification.
+            {% if request.user.email_verified %}
+            Verified. Email addresses are used as primary identifiers and cannot be changed without verification.
+            {% else %}
+            Not verified yet. Apps that rely on your email address won't trust it until you click the link we sent.
+            <button type="submit" form="resend-verification" class="btn-link">Resend link</button>
+            {% endif %}
         </small>
     </div>
 
@@ -44,4 +49,10 @@
         Save Changes
     </button>
 </form>
+
+{% if not request.user.email_verified %}
+<form id="resend-verification" method="post" action="{% url 'entities:console_resend_verification' %}">
+    {% csrf_token %}
+</form>
+{% endif %}
 {% endblock %}

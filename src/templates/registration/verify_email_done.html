@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Email Verification - Authy{% endblock %}
+
+{% block content %}
+<div class="auth-header">
+    {% if verified %}
+    <h1>Email Verified</h1>
+    <p>Thanks. Your email address is confirmed.</p>
+    {% else %}
+    <h1>Link Not Valid</h1>
+    <p>This verification link has expired or has already been used.</p>
+    {% endif %}
+</div>
+
+{% if not verified %}
+<div class="alert alert-error m-bottom-2">
+    Sign in and request a new link from your account console.
+</div>
+{% endif %}
+
+<a href="{% url 'entities:console_profile' %}" class="btn btn-secondary">
+    Go to Account Console
+</a>
+{% endblock %}

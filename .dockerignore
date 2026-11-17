@@ -1,0 +1,36 @@
+# Secrets and local state must never reach the image.
+# "**/" matters: bare patterns only match at the context root.
+**/.env
+**/.env.*
+!.env.example
+**/env.sh
+**/*.key
+**/*.pem
+**/*.sqlite3
+**/.coverage
+src/logs/
+src/media/
+
+# Tooling, caches and build output
+.git/
+.github/
+.venv/
+.claude/
+.local_dev/
+**/__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+junitxml_report/
+site/
+src/staticfiles/
+
+# Not needed at runtime
+tests/
+docs/
+*.md
+!README.md
+mkdocs.yml
+tox.ini
+requirements/

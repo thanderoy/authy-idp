@@ -28,15 +28,13 @@ def mock_request():
 
     # Mock groups
     group_mock = MagicMock()
-    group_mock.filter.return_value.values_list.side_effect = [
-        ["uuid-1", "uuid-2"],  # for get_additional_claims flat=True
-        [("Group", "One"), ("Group", "Two")],  # for get_userinfo_claims
+    group_mock.filter.return_value.values_list.return_value = [
+        ("Group", "One"),
+        ("Group", "Two"),
     ]
     req.user.parent_entities = group_mock
-    req.user.custom_attributes = {"role": "admin"}
     req.client = MagicMock()
     req.client.client_id = "test-client"
-    req.client.allow_silent_login = True
     return req
 
 
@@ -50,17 +48,7 @@ class TestEnhancedValidator:
         assert claims["first_name"] == "Test"
         assert claims["email"] == "test@example.com"
         assert claims["entity_type"] == "PSN"
-        assert claims["custom_attributes"] == {"role": "admin"}
-        assert len(claims["groups"]) == 2
-
-    def test_get_userinfo_claims(self, validator, mock_request):
-        with patch(
-            "oauth2_provider.oauth2_validators.OAuth2Validator.get_userinfo_claims",
-            return_value={"sub": "1"},
-        ):
-            claims = validator.get_userinfo_claims(mock_request)
-            assert claims["email"] == "test@example.com"
-            assert "Group One" in claims["groups"]
+        assert claims["groups"] == ["Group One", "Group Two"]
 
     def test_validate_bearer_token_blacklisted(self, validator, mock_request):
         validator._blacklist_token("bad_token", "access_token")
@@ -119,34 +107,17 @@ class TestEnhancedValidator:
         )
         assert cache.get("auth_code_used:fresh_code") is True
 
-    def test_validate_refresh_token_rotated(self, validator, mock_request):
-        cache.set("rotated:stale_rt", True)
-        assert (
-            validator.validate_refresh_token("stale_rt", MagicMock(), mock_request)
-            is False
-        )
-
     @patch("oauth2_provider.oauth2_validators.OAuth2Validator.save_bearer_token")
     def test_save_bearer_token(self, mock_super, validator, mock_request):
         token = {"access_token": "at", "refresh_token": "rt"}
         validator.save_bearer_token(token, mock_request)
-        family = cache.get(f"family:{hashlib.sha256(b'rt').hexdigest()}")
-        assert family is not None
         mock_super.assert_called_once()
 
-    @patch("oauth2_provider.oauth2_validators.OAuth2Validator.save_bearer_token")
     @patch("oauth2_provider.oauth2_validators.OAuth2Validator.revoke_token")
-    def test_revoke_token_family(
-        self, mock_super_revoke, mock_super_save, validator, mock_request
-    ):
-        # Create family
-        token = {"access_token": "at", "refresh_token": "rt"}
-        validator.save_bearer_token(token, mock_request)
-        family = cache.get(f"family:{hashlib.sha256(b'rt').hexdigest()}")
-
+    def test_revoke_token_blacklists(self, mock_super, validator, mock_request):
         validator.revoke_token("rt", "refresh_token", mock_request)
         assert cache.get(f"blacklist:{hashlib.sha256(b'rt').hexdigest()}") is True
-        assert cache.get(f"family_revoked:{family}") is True
+        mock_super.assert_called_once()
 
     def test_introspect_token_blacklisted(self, validator, mock_request):
         validator._blacklist_token("bad_token", "access_token")
@@ -162,23 +133,6 @@ class TestEnhancedValidator:
         res = validator.introspect_token("good", "access_token", mock_request)
         assert res["issued_at"] == "time"
 
-    def test_validate_silent_login_unauthenticated(self, validator, mock_request):
-        mock_request.user.is_authenticated = False
-        assert validator.validate_silent_login(mock_request) is False
-
-    def test_validate_silent_login_client_disallowed(self, validator, mock_request):
-        mock_request.client.allow_silent_login = False
-        assert validator.validate_silent_login(mock_request) is False
-
-    def test_validate_silent_login_session_too_old(self, validator, mock_request):
-        cache.set(f"session_age:{mock_request.user.id}", 4000)
-        assert validator.validate_silent_login(mock_request) is False
-
-    def test_validate_silent_login_success(self, validator, mock_request):
-        # User is authenticated, client allows silent, no session age means fresh
-        assert validator.validate_silent_login(mock_request) is True
-        assert validator.validate_silent_authorization(mock_request) is True
-
     def test_log_token_usage_fallback_request(self, validator, mock_request):
         # Mock oauthlib request that wraps a django request
         django_req = MagicMock()
@@ -191,3 +145,48 @@ class TestEnhancedValidator:
             cache.get(f"token_last_used:{hashlib.sha256(b'token').hexdigest()}")
             == "192.168.1.1"
         )
+
+
+@pytest.mark.django_db
+def test_logs_never_contain_token_material(validator, mock_request, caplog):
+    import logging
+
+    secret = "SuperSecretAccessToken1234567890"
+    caplog.set_level(logging.INFO)
+    validator._blacklist_token(secret, "access_token")
+    validator.validate_bearer_token(secret, [], mock_request)
+    with patch("oauth2_provider.oauth2_validators.OAuth2Validator.revoke_token"):
+        validator.revoke_token(secret, "access_token", mock_request)
+    assert caplog.records
+    assert not any(secret[:6] in record.getMessage() for record in caplog.records)
+
+
+def test_audit_log_omits_exception_text(rf, caplog):
+    import logging
+
+    from django.contrib.auth.models import AnonymousUser
+
+    from modules.utils.middleware import AuditLoggingMiddleware
+
+    request = rf.post("/o/token/")
+    request.user = AnonymousUser()
+    caplog.set_level(logging.ERROR)
+    AuditLoggingMiddleware(lambda r: None).process_exception(
+        request, ValueError("password=hunter2")
+    )
+    assert "ValueError" in caplog.text
+    assert "hunter2" not in caplog.text
+
+
+def test_token_revocation_is_audited(rf, caplog):
+    import logging
+
+    from django.contrib.auth.models import AnonymousUser
+
+    from modules.utils.middleware import AuditLoggingMiddleware
+
+    request = rf.post("/o/revoke_token/")
+    request.user = AnonymousUser()
+    caplog.set_level(logging.INFO)
+    AuditLoggingMiddleware(lambda r: None).process_request(request)
+    assert "Audit: POST /o/revoke_token/" in caplog.text

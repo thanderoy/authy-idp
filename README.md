@@ -1,4 +1,4 @@
-# authy-iodc-server
+# authy-oidc-server
 
 
 # OAuth2 and OIDC Authorization Server
@@ -178,11 +178,36 @@ response = requests.post(
 
 ## API Endpoints
 
-- Authorization: `/oauth2/authorize`
-- Token: `/oauth2/token`
-- UserInfo: `/oauth2/userinfo`
-- Introspection: `/oauth2/introspect`
-- Revocation: `/oauth2/revoke`
+- Discovery: `/o/.well-known/openid-configuration`
+- JWKS: `/o/.well-known/jwks.json`
+- Authorization: `/o/authorize/`
+- Token: `/o/token/`
+- UserInfo: `/o/userinfo/`
+- Introspection: `/o/introspect/`
+- Revocation: `/o/revoke_token/`
+
+## Claims and scopes
+
+Claims are released only for the scopes the client was granted, in both the ID
+token and userinfo:
+
+| Scope | Claims |
+|---|---|
+| `openid` | `sub` |
+| `profile` | `name`, `first_name`, `last_name`, `preferred_username`, `entity_type` |
+| `email` | `email`, `email_verified` |
+| `groups` | `groups` (group names) |
+
+`email_verified` is `true` only after the user has clicked the link sent at
+sign-up or after an email change. **Relying parties that match accounts by email
+must check it**, or anyone could register someone else's address.
+
+`prompt=none` is supported: signed-out users get `login_required`, apps with
+*skip authorization* set get a code without any UI, and other apps get
+`consent_required`.
+
+Refresh tokens rotate on every use, and replaying an old one revokes the whole
+token family.
 
 ## Example Applications
 
@@ -192,6 +217,37 @@ Check the `tests` directory for complete implementation examples of each flow, i
 - Legacy application using Password flow
 - Token management and introspection examples
 - Refresh token implementation examples
+
+## Development
+
+Requires Python 3.13 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync                                  # dependencies, including dev tools
+cp .env.example .env                     # set DJANGO_SECRET_KEY; DEBUG=True
+openssl genrsa -out oidc.key 2048        # OIDC signing key (gitignored)
+uv run python src/manage.py migrate
+uv run python src/manage.py runserver
+```
+
+With `DEBUG=True` and no `DATABASE_URL`/`REDIS_URL`, it uses SQLite and an
+in-memory cache. The account console is at `/entities/console/profile/`.
+
+```bash
+uv run pytest                            # tests (parallel, with coverage)
+uv run pytest tests/entities/test_views.py -n 0 --no-cov   # one file, serial
+uv run ruff check . && uv run mypy src   # lint and types
+uv run pre-commit install                # hooks, including the commit-message check
+```
+
+Tests run with production-like settings (`DEBUG=False`) whatever your `.env`
+says. CI runs lint, types, tests, `pip-audit` and a Docker build on pushes and
+PRs to `dev` and `main`.
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md): Docker Compose behind Traefik, signing key
+rotation, first-admin OTP setup, and backups.
 
 ## License
 

@@ -2,9 +2,9 @@
 
 import sys
 from pathlib import Path
-from datetime import timedelta
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from decouple import config, Csv
 
 TESTING = "pytest" in sys.modules
@@ -16,6 +16,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config("DJANGO_SECRET_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="", cast=Csv())
+
+# Reverse proxy (Traefik): how many proxies sit in front of the app. When
+# set, X-Forwarded-Proto/Host are trusted and client IPs come from
+# X-Forwarded-For (see modules.utils.client_ip). Leave at 0 when the app is
+# reached directly, or clients could spoof these headers.
+TRUSTED_PROXY_COUNT = config("TRUSTED_PROXY_COUNT", default=0, cast=int)
+if TRUSTED_PROXY_COUNT > 0:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
 
 SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=not DEBUG, cast=bool)
 if TESTING:
@@ -41,7 +50,12 @@ INSTALLED_APPS = [
     "corsheaders",
     "rest_framework",
     "drf_spectacular",
-    "django_extensions",
+]
+
+OTP_APPS = [
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
 ]
 
 LOCAL_APPS = [
@@ -51,13 +65,21 @@ LOCAL_APPS = [
 THIRD_PARTY_APPS = []
 
 # Add apps based on environment
+if DEBUG:
+    # Dev tooling (shell_plus, runserver_plus) lives in the dev dependency
+    # group, so it isn't installed in the production image.
+    from importlib.util import find_spec
+
+    if find_spec("django_extensions"):
+        THIRD_PARTY_APPS += ["django_extensions"]
 if not DEBUG:
     THIRD_PARTY_APPS += ["django_prometheus"]  # For production monitoring
 
-INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
+INSTALLED_APPS += OTP_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "modules.utils.middleware.SecurityHeadersMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "modules.utils.middleware.RequestSizeMiddleware",
@@ -65,6 +87,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",
     "modules.utils.middleware.SessionSecurityMiddleware",
     "oauth2_provider.middleware.OAuth2TokenMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -78,6 +101,10 @@ MIDDLEWARE = [
 if not DEBUG:
     MIDDLEWARE.insert(0, "django_prometheus.middleware.PrometheusBeforeMiddleware")
     MIDDLEWARE.append("django_prometheus.middleware.PrometheusAfterMiddleware")
+
+# First of all, so container health checks over plain HTTP aren't redirected
+# to HTTPS or rejected by the ALLOWED_HOSTS check.
+MIDDLEWARE.insert(0, "modules.utils.middleware.HealthCheckMiddleware")
 
 # CORS Configuration - More restrictive
 CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="", cast=Csv())
@@ -159,6 +186,16 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
+# WhiteNoise serves collected static files when DEBUG is off. The manifest
+# storage needs collectstatic to have run, so dev and tests use the plain one.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        if DEBUG or TESTING
+        else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
 
 # Media files
 MEDIA_URL = "/media/"
@@ -182,22 +219,41 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
+# Admin
+# Served at ADMIN_URL instead of the well-known admin/. Outside DEBUG it is
+# reachable only from ADMIN_IP_WHITELIST (addresses or CIDR ranges, "*" for
+# any) and, with ADMIN_REQUIRE_OTP, only after an OTP token. Bootstrap the
+# first admin with `manage.py addstatictoken <email>`, then add a TOTP device.
+ADMIN_URL = config("ADMIN_URL", default="admin/").strip("/") + "/"
+ADMIN_IP_WHITELIST = config("ADMIN_IP_WHITELIST", default="", cast=Csv())
+# Prometheus scrapes /metrics (outside DEBUG); same rules as the admin list.
+METRICS_IP_WHITELIST = config("METRICS_IP_WHITELIST", default="", cast=Csv())
+ADMIN_REQUIRE_OTP = config("ADMIN_REQUIRE_OTP", default=not DEBUG, cast=bool)
+OTP_TOTP_ISSUER = "Authy"
+
 # Authentication
 AUTH_USER_MODEL = "entities.Entity"
 LOGIN_URL = "/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/entities/console/profile/"
 LOGOUT_REDIRECT_URL = "/"
 
 AUTHENTICATION_BACKENDS = [
     "oauth2_provider.backends.OAuth2Backend",
-    "django.contrib.auth.backends.ModelBackend",
+    "modules.entities.backends.LockoutModelBackend",
 ]
+
+# Failed logins per account before it is locked, and for how long.
+LOGIN_LOCKOUT_ATTEMPTS = config("LOGIN_LOCKOUT_ATTEMPTS", default=5, cast=int)
+LOGIN_LOCKOUT_SECONDS = config("LOGIN_LOCKOUT_SECONDS", default=900, cast=int)
+# Reset emails a single address can receive per hour, whoever asks.
+PASSWORD_RESET_EMAILS_PER_HOUR = config(
+    "PASSWORD_RESET_EMAILS_PER_HOUR", default=3, cast=int
+)
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "oauth2_provider.contrib.rest_framework.OAuth2Authentication",
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
@@ -215,9 +271,21 @@ REST_FRAMEWORK = {
     },
 }
 
+
 # OAuth2 Provider Configuration
+# The OIDC signing key comes from, in order: OIDC_RSA_PRIVATE_KEY (the PEM
+# itself), the file at OIDC_RSA_PRIVATE_KEY_PATH, or oidc.key at the repo
+# root. Without one the server refuses to start; tests get a throwaway key.
+# Retired keys listed in OIDC_RSA_PRIVATE_KEYS_INACTIVE_PATHS stay in JWKS
+# so tokens they signed still verify during a rotation.
+def _read_key(path: Path) -> str:
+    if not path.is_file():
+        raise ImproperlyConfigured(f"OIDC signing key not found at {path}.")
+    return path.read_text()
+
+
 oidc_key_val = config("OIDC_RSA_PRIVATE_KEY", default="")
-if oidc_key_val == "$(cat oidc.key)" or not oidc_key_val.startswith("-----BEGIN"):
+if not oidc_key_val.startswith("-----BEGIN"):
     if TESTING:
         from jwcrypto import jwk
 
@@ -226,13 +294,24 @@ if oidc_key_val == "$(cat oidc.key)" or not oidc_key_val.startswith("-----BEGIN"
             "utf-8"
         )
     else:
-        key_path = BASE_DIR / "oidc.key"
-        if key_path.exists():
-            oidc_key_val = key_path.read_text()
+        oidc_key_val = _read_key(
+            Path(
+                config(
+                    "OIDC_RSA_PRIVATE_KEY_PATH",
+                    default=str(BASE_DIR.parent / "oidc.key"),
+                )
+            )
+        )
+
+OIDC_INACTIVE_KEYS = [
+    _read_key(Path(path))
+    for path in config("OIDC_RSA_PRIVATE_KEYS_INACTIVE_PATHS", default="", cast=Csv())
+]
 
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
     "OIDC_RSA_PRIVATE_KEY": oidc_key_val,
+    "OIDC_RSA_PRIVATE_KEYS_INACTIVE": OIDC_INACTIVE_KEYS,
     "OAUTH2_VALIDATOR_CLASS": "modules.utils.oidc_validator.EnhancedAuthyOAuth2Validator",
     "SCOPES": {
         "openid": "OpenID Connect scope",
@@ -253,49 +332,49 @@ OAUTH2_PROVIDER = {
         "AUTHORIZATION_CODE_EXPIRE_SECONDS", default=600, cast=int
     ),
     "ROTATE_REFRESH_TOKEN": True,  # Security best practice
+    # Replaying a rotated refresh token revokes its whole family.
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
     "PKCE_REQUIRED": True,  # Enforce PKCE for public clients
     "APPLICATION_MODEL": "oauth2_provider.Application",
 }
 
 OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
 
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "UPDATE_LAST_LOGIN": True,
-    "ALGORITHM": "RS256",
-    "SIGNING_KEY": config("OIDC_RSA_PRIVATE_KEY", default=None),
-    "VERIFYING_KEY": config("OIDC_RSA_PUBLIC_KEY", default=None),
-    "AUTH_HEADER_TYPES": ("Bearer",),
-    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
-    "USER_ID_FIELD": "id",
-    "USER_ID_CLAIM": "user_id",
-    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    "TOKEN_TYPE_CLAIM": "token_type",
-}
 
 # Caching Configuration
+# Rate limits, lockouts, the token blacklist and code-replay protection all
+# live in the cache, so every worker must share it. The in-memory fallback is
+# per process and is only allowed for development and tests.
+REDIS_URL = config("REDIS_URL", default=None)
+if not REDIS_URL and not DEBUG and not TESTING:
+    raise ImproperlyConfigured("REDIS_URL is required when DEBUG is False.")
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache"
-        if config("REDIS_URL", default=None)
+        if REDIS_URL
         else "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": config("REDIS_URL", default="redis://127.0.0.1:6379/1"),
+        "LOCATION": REDIS_URL or "",
         "KEY_PREFIX": "authy_oidc",
         "TIMEOUT": 300,
     }
 }
 
 # Session Configuration
-SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+# cached_db writes through to the database, so a Redis restart doesn't sign
+# everyone out.
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 SESSION_CACHE_ALIAS = "default"
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 
 # Logging Configuration
+# Log files go to LOG_DIR (default src/logs/), created on startup so a fresh
+# checkout or container doesn't fail with "Unable to configure handler".
+LOG_DIR = Path(config("LOG_DIR", default="") or BASE_DIR / "logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -322,7 +401,7 @@ LOGGING = {
         "file": {
             "level": "ERROR",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "django.log",
+            "filename": LOG_DIR / "django.log",
             "maxBytes": 1024 * 1024 * 10,  # 10 MB
             "backupCount": 10,
             "formatter": "verbose",
@@ -330,7 +409,7 @@ LOGGING = {
         "security": {
             "level": "WARNING",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "security.log",
+            "filename": LOG_DIR / "security.log",
             "maxBytes": 1024 * 1024 * 10,  # 10 MB
             "backupCount": 10,
             "formatter": "verbose",
@@ -361,15 +440,26 @@ LOGGING = {
 }
 
 # Email Configuration
+# Verification and password-reset mail must really go out in production:
+# SMTP by default, and the sender address has to be set explicitly.
 EMAIL_BACKEND = config(
-    "EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend"
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend"
+    if DEBUG or TESTING
+    else "django.core.mail.backends.smtp.EmailBackend",
 )
 EMAIL_HOST = config("EMAIL_HOST", default="localhost")
 EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@authy-oidc.com")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="")
+if not DEFAULT_FROM_EMAIL:
+    if not DEBUG and not TESTING:
+        raise ImproperlyConfigured(
+            "DEFAULT_FROM_EMAIL is required when DEBUG is False."
+        )
+    DEFAULT_FROM_EMAIL = "webmaster@localhost"
 
 # Sentry Configuration (for production error tracking)
 if not DEBUG:
@@ -386,8 +476,8 @@ if not DEBUG:
         )
 
 # Celery Configuration (for async tasks)
-CELERY_BROKER_URL = config("REDIS_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_BROKER_URL = REDIS_URL or "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = REDIS_URL or "redis://localhost:6379/0"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

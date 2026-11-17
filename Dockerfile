@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-project --no-dev
 
-# Copy project source
+# Copy project source (.dockerignore keeps secrets and local state out)
 COPY . /app
 
 # Install project
@@ -25,7 +25,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.13-slim-bookworm
 
 # Setup non-root user
-RUN addgroup --system appgroup && adduser --system --group appuser
+# Fixed UID/GID so mounted secrets (the signing key) can be chowned to it.
+RUN addgroup --system --gid 10001 appgroup \
+    && adduser --system --uid 10001 --ingroup appgroup appuser
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -42,4 +44,8 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:8000", "config.wsgi:application"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz/', timeout=4)"]
+
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
+CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:8000", "--access-logfile", "-", "--no-control-socket", "config.wsgi:application"]
