@@ -116,3 +116,15 @@ def test_healthz_reports_cache_failure(client, monkeypatch):
 
     monkeypatch.setattr(middleware.cache, "set", broken)
     assert client.get("/healthz/").status_code == 503
+
+
+@pytest.mark.django_db
+def test_csp_allows_no_inline_or_third_party_scripts(client):
+    policy = client.get("/login/")["Content-Security-Policy"]
+    directives = dict(
+        d.strip().split(" ", 1) for d in policy.strip(";").split(";") if d.strip()
+    )
+    assert directives["script-src"] == "'self'"
+    assert "jsdelivr" not in policy
+    assert "https://fonts.googleapis.com" in directives["style-src"]
+    assert "https://fonts.gstatic.com" in directives["font-src"]
