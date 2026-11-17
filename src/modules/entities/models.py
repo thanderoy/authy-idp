@@ -212,3 +212,25 @@ class ApplicationBranding(AuthyBaseModel):
 
     def __str__(self) -> str:
         return f"Branding for {self.application.name}"
+
+
+class UserSession(models.Model):
+    """One signed-in browser session, so a user can see and end their
+    sessions from the console. Sessions themselves live in Django's
+    session store, which can't be queried by user; this table indexes them.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sessions"
+    )
+    session_key = models.CharField(max_length=40, unique=True)
+    ip = models.CharField(max_length=45, blank=True)  # IPv4 or IPv6
+    user_agent = models.CharField(max_length=255, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-last_seen",)
+
+    def __str__(self) -> str:
+        return f"Session for {self.user_id} from {self.ip}"

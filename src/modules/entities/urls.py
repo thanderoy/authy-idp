@@ -27,4 +27,9 @@ urlpatterns = [
         views.ConsoleSessionsView.as_view(),
         name="console_sessions",
     ),
+    path(
+        "console/sessions/<int:pk>/revoke/",
+        views.ConsoleRevokeSessionView.as_view(),
+        name="console_revoke_session",
+    ),
 ] + router.urls

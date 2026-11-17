@@ -16,8 +16,8 @@ from django.contrib.auth.views import PasswordChangeView
 from django.contrib import messages
 from django.conf import settings
 
-from modules.utils.client_ip import get_client_ip
 from modules.entities.forms import CustomUserCreationForm, UserUpdateForm
+from modules.entities.sessions import active_sessions, end_session, touch_session
 from modules.entities.verification import (
     email_verification_token,
     send_verification_email,
@@ -133,27 +133,40 @@ class ConsoleSessionsView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # TODO: Replace this simulated session list with a real session
-        # query once the project supports a database-backed session engine.
-        # Currently Django's cache-backed sessions are not indexed by user,
-        # so we only surface the current request's session metadata.
         context["current_session"] = self.request.session.session_key
         context["active_sessions"] = self._get_active_sessions()
         return context
 
     def _get_active_sessions(self):
-        """Return a list of session dicts for the authenticated user.
+        """Session dicts for the signed-in user, current one first.
 
-        This is an abstraction point: when the project migrates to
-        database-backed sessions, this method should query all sessions
-        belonging to ``self.request.user`` without changing the template
-        contract (each dict must contain ``session_key``, ``ip``, and
-        ``user_agent``).
+        Each dict has ``session_key``, ``ip``, ``user_agent``, ``id`` (for
+        revoking) and ``last_seen``. The current session is refreshed from
+        this request; others show what was recorded when they signed in.
         """
-        return [
+        touch_session(self.request, self.request.user)
+        current_key = self.request.session.session_key
+        sessions = [
             {
-                "session_key": self.request.session.session_key,
-                "ip": get_client_ip(self.request),
-                "user_agent": self.request.META.get("HTTP_USER_AGENT", "Unknown"),
+                "id": record.pk,
+                "session_key": record.session_key,
+                "ip": record.ip or "Unknown",
+                "user_agent": record.user_agent or "Unknown",
+                "last_seen": record.last_seen,
             }
+            for record in active_sessions(self.request.user)
         ]
+        sessions.sort(key=lambda s: s["session_key"] != current_key)
+        return sessions
+
+
+@method_decorator(require_POST, name="dispatch")
+class ConsoleRevokeSessionView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        if request.user.sessions.filter(
+            pk=pk, session_key=request.session.session_key
+        ).exists():
+            messages.error(request, "Use Log Out to end the session you're using.")
+        elif end_session(request.user, pk):
+            messages.success(request, "That device has been signed out.")
+        return redirect("entities:console_sessions")

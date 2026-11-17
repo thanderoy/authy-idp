@@ -26,6 +26,11 @@
             <p class="session-agent">
                 {{ session.user_agent }}
             </p>
+            {% if session.last_seen %}
+            <p class="session-detail">
+                <strong>Signed in:</strong> last seen {{ session.last_seen|timesince }} ago
+            </p>
+            {% endif %}
         </div>
 
         <div>
@@ -36,11 +41,13 @@
                         Log Out
                     </button>
                 </form>
-            {% else %}
-                <!-- Mock revoke for future implementation -->
-                <button class="btn btn-secondary" disabled style="opacity: 0.5; cursor: not-allowed;">
-                    Revoke Access
-                </button>
+            {% elif session.id %}
+                <form method="post" action="{% url 'entities:console_revoke_session' session.id %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-secondary btn-danger-outline">
+                        Sign Out Device
+                    </button>
+                </form>
             {% endif %}
         </div>
     </div>
