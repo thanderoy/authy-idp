@@ -36,7 +36,11 @@ def test_signing_key_read_from_path_and_inactive_keys_published(
         "import os,json;os.environ['DJANGO_SETTINGS_MODULE']='config.settings';"
         "import django;django.setup();"
         "from django.test import Client;"
-        "r=Client().get('/o/.well-known/jwks.json', secure=True);"
+        "from django.test.utils import override_settings;"
+        # A real request reaches the rate limiter; keep it off Redis.
+        "cache={'default':{'BACKEND':'django.core.cache.backends.locmem.LocMemCache'}};"
+        "r=override_settings(CACHES=cache)(lambda: Client().get("
+        "'/o/.well-known/jwks.json', secure=True))();"
         "print(r.status_code, len(json.loads(r.content)['keys']))"
     )
     result = load_settings(

@@ -47,7 +47,9 @@ def load_settings(key_file):
             "PYTHONPATH": "src",
             "DJANGO_SECRET_KEY": "x",
             "DEBUG": "False",
-            "REDIS_URL": "redis://redis:6379/0",
+            # .invalid never resolves, so a test that really touches Redis fails
+            # here too, not only in CI.
+            "REDIS_URL": "redis://redis.invalid:6379/0",
             "OIDC_RSA_PRIVATE_KEY": "",
             "OIDC_RSA_PRIVATE_KEY_PATH": str(key_file("default.key")),
             "TRUSTED_PROXY_COUNT": "0",
