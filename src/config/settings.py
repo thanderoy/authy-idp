@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from decouple import config, Csv
 
 TESTING = "pytest" in sys.modules
@@ -276,19 +277,28 @@ OAUTH2_PROVIDER_APPLICATION_MODEL = "oauth2_provider.Application"
 
 
 # Caching Configuration
+# Rate limits, lockouts, the token blacklist and code-replay protection all
+# live in the cache, so every worker must share it. The in-memory fallback is
+# per process and is only allowed for development and tests.
+REDIS_URL = config("REDIS_URL", default=None)
+if not REDIS_URL and not DEBUG and not TESTING:
+    raise ImproperlyConfigured("REDIS_URL is required when DEBUG is False.")
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache"
-        if config("REDIS_URL", default=None)
+        if REDIS_URL
         else "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": config("REDIS_URL", default="redis://127.0.0.1:6379/1"),
+        "LOCATION": REDIS_URL or "",
         "KEY_PREFIX": "authy_oidc",
         "TIMEOUT": 300,
     }
 }
 
 # Session Configuration
-SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+# cached_db writes through to the database, so a Redis restart doesn't sign
+# everyone out.
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 SESSION_CACHE_ALIAS = "default"
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_COOKIE_HTTPONLY = True
@@ -385,8 +395,8 @@ if not DEBUG:
         )
 
 # Celery Configuration (for async tasks)
-CELERY_BROKER_URL = config("REDIS_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_BROKER_URL = REDIS_URL or "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = REDIS_URL or "redis://localhost:6379/0"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
